@@ -300,3 +300,17 @@ void toast(BuildContext context, String msg) {
     ..hideCurrentSnackBar()
     ..showSnackBar(SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating));
 }
+
+/// Màu cho mức thay đổi cân nặng: xanh nếu đi về phía mục tiêu, đỏ nếu đi
+/// ngược, trung tính khi chưa đặt mục tiêu (tăng hay giảm chưa chắc là tốt).
+Color deltaColor(BuildContext context, double delta,
+    {double? goal, double? current}) {
+  final cs = Theme.of(context).colorScheme;
+  if (delta.abs() < 0.05 || goal == null || current == null) {
+    return cs.onSurfaceVariant;
+  }
+  final before = current - delta;
+  final wantDown = goal < before;
+  final good = wantDown ? delta < 0 : delta > 0;
+  return good ? Colors.green.shade600 : cs.error;
+}

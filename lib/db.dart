@@ -3,6 +3,22 @@ import 'package:sqflite/sqflite.dart';
 
 import 'models.dart';
 
+const _schemaVersion = 2;
+
+/// Cột thêm ở schema v2. Giữ ở một chỗ để onCreate và onUpgrade dùng chung.
+const _measurementV2Cols = {
+  'device_name': 'TEXT',
+  'method': 'TEXT',
+  'samples': 'INTEGER',
+  'duration_ms': 'INTEGER',
+  'min_kg': 'REAL',
+  'max_kg': 'REAL',
+  'raw': 'TEXT',
+  'height_cm': 'REAL',
+  'note': 'TEXT',
+};
+const _userV2Cols = {'sex': 'TEXT', 'birth_year': 'INTEGER'};
+
 class AppDb {
   late Database _db;
 
@@ -10,7 +26,7 @@ class AppDb {
     final dir = await getDatabasesPath();
     _db = await openDatabase(
       p.join(dir, 'can_lo.db'),
-      version: 1,
+      version: _schemaVersion,
       onCreate: (d, v) async {
         await d.execute('''
           CREATE TABLE users(
@@ -43,8 +59,21 @@ class AppDb {
         await d.execute(
             'CREATE INDEX idx_m_user ON measurements(user_id, measured_at)');
         await d.execute('CREATE TABLE settings(k TEXT PRIMARY KEY, v TEXT)');
+        await _addV2(d);
+      },
+      onUpgrade: (d, from, to) async {
+        if (from < 2) await _addV2(d);
       },
     );
+  }
+
+  Future<void> _addV2(Database d) async {
+    for (final e in _measurementV2Cols.entries) {
+      await d.execute('ALTER TABLE measurements ADD COLUMN ${e.key} ${e.value}');
+    }
+    for (final e in _userV2Cols.entries) {
+      await d.execute('ALTER TABLE users ADD COLUMN ${e.key} ${e.value}');
+    }
   }
 
   // Users
@@ -61,8 +90,10 @@ class AppDb {
   }
 
   Future<void> deleteUser(int id) async {
-    await _db.delete('measurements', where: 'user_id=?', whereArgs: [id]);
-    await _db.delete('users', where: 'id=?', whereArgs: [id]);
+    await _db.transaction((t) async {
+      await t.delete('measurements', where: 'user_id=?', whereArgs: [id]);
+      await t.delete('users', where: 'id=?', whereArgs: [id]);
+    });
   }
 
   // Devices
@@ -93,9 +124,9 @@ class AppDb {
     return m.id = id;
   }
 
-  Future<void> updateMeasurementUser(int id, int? userId) async => _db.update(
-      'measurements', {'user_id': userId},
-      where: 'id=?', whereArgs: [id]);
+  Future<void> updateMeasurement(Measurement m) async => _db.update(
+      'measurements', m.toMap()..remove('id'),
+      where: 'id=?', whereArgs: [m.id]);
 
   Future<void> deleteMeasurement(int id) async =>
       _db.delete('measurements', where: 'id=?', whereArgs: [id]);

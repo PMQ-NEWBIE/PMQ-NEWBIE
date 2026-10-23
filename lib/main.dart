@@ -120,10 +120,11 @@ class ShellState extends State<Shell> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState s) {
     final st = AppScope.read(context);
+    if (st.loading) return;
     if (s == AppLifecycleState.paused) {
-      st.ble.stopScan(keepWanted: true);
-    } else if (s == AppLifecycleState.resumed && st.devices.isNotEmpty) {
-      st.ble.startScan();
+      st.onPaused();
+    } else if (s == AppLifecycleState.resumed) {
+      st.onResumed();
     }
   }
 

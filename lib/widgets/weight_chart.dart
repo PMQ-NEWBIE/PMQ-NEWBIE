@@ -9,6 +9,8 @@ import '../models.dart';
 /// Biểu đồ cân nặng: vẽ dần khi đổi dữ liệu, chạm/kéo để xem từng điểm.
 class WeightChart extends StatefulWidget {
   final List<Measurement> data;
+  /// Trung bình 7 ngày tại từng điểm (cùng độ dài với [data]), có thể null.
+  final List<double?>? average;
   final double? goalKg;
   final bool lb;
   final double height;
@@ -18,6 +20,7 @@ class WeightChart extends StatefulWidget {
     required this.data,
     required this.lb,
     required this.color,
+    this.average,
     this.goalKg,
     this.height = 220,
   });
@@ -86,6 +89,7 @@ class _WeightChartState extends State<WeightChart>
               size: size,
               painter: _ChartPainter(
                 data: widget.data,
+                average: widget.average,
                 goal: widget.goalKg,
                 lb: widget.lb,
                 progress: Curves.easeOutCubic.transform(_c.value),
@@ -140,6 +144,7 @@ class _Geo {
 
 class _ChartPainter extends CustomPainter {
   final List<Measurement> data;
+  final List<double?>? average;
   final double? goal;
   final bool lb;
   final double progress;
@@ -148,6 +153,7 @@ class _ChartPainter extends CustomPainter {
 
   _ChartPainter({
     required this.data,
+    required this.average,
     required this.goal,
     required this.lb,
     required this.progress,
@@ -205,6 +211,14 @@ class _ChartPainter extends CustomPainter {
           align: TextAlign.right);
     }
 
+    if (average != null && data.length > 1) {
+      canvas.drawLine(Offset(_Geo.padL + 2, 7), Offset(_Geo.padL + 16, 7),
+          Paint()
+            ..color = text.withValues(alpha: 0.7)
+            ..strokeWidth = 1.6);
+      _label(canvas, 'TB 7 ngày', Offset(_Geo.padL + 20, 7), text, size: 10);
+    }
+
     // Đường mục tiêu nét đứt.
     if (goal != null) {
       final yy = g.y(goal!);
@@ -246,6 +260,29 @@ class _ChartPainter extends CustomPainter {
             colors: [line.withValues(alpha: 0.28), line.withValues(alpha: 0.0)],
           ).createShader(Rect.fromLTWH(0, _Geo.padT, size.width, size.height)),
       );
+      final avg = average;
+      if (avg != null && avg.length == data.length) {
+        final ap = Path();
+        var started = false;
+        for (var i = 0; i < data.length; i++) {
+          final v = avg[i];
+          if (v == null) continue;
+          final o = Offset(g.x(data[i].at), g.y(v));
+          if (!started) {
+            ap.moveTo(o.dx, o.dy);
+            started = true;
+          } else {
+            ap.lineTo(o.dx, o.dy);
+          }
+        }
+        canvas.drawPath(
+          ap,
+          Paint()
+            ..color = text.withValues(alpha: 0.7)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.6,
+        );
+      }
       canvas.drawPath(
         path,
         Paint()
@@ -306,6 +343,7 @@ class _ChartPainter extends CustomPainter {
       o.progress != progress ||
       o.selected != selected ||
       o.data != data ||
+      o.average != average ||
       o.goal != goal ||
       o.lb != lb ||
       o.line != line ||

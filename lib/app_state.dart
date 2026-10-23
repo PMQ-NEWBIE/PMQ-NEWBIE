@@ -4,9 +4,12 @@ import 'package:flutter/material.dart';
 
 import 'ble_service.dart';
 import 'db.dart';
+import 'fmt.dart';
+import 'metrics.dart';
 import 'models.dart';
 import 'native.dart';
 import 'protocols.dart';
+import 'session.dart';
 
 class LiveReading {
   final String deviceId;
@@ -16,37 +19,6 @@ class LiveReading {
   final DateTime at;
   LiveReading(this.deviceId, this.kg, this.settled, this.at, {this.hold = 0});
 }
-
-/// Một phiên cân: từ lúc có người đứng lên tới lúc bước xuống / cân tắt.
-class _Session {
-  bool active = false;
-  DateTime start = DateTime.now();
-  DateTime lastPacket = DateTime.now();
-  double? lastKg;
-  DateTime holdStart = DateTime.now();
-  int holdPackets = 0;
-  double? bestKg;
-  Duration bestHold = Duration.zero;
-  double? committedKg;
-  int? impedance;
-  // Chống lưu trùng giữa các phiên.
-  double? lastFinal;
-  DateTime lastFinalAt = DateTime.fromMillisecondsSinceEpoch(0);
-
-  void reset() {
-    active = false;
-    lastKg = null;
-    holdPackets = 0;
-    bestKg = null;
-    bestHold = Duration.zero;
-    committedKg = null;
-    impedance = null;
-  }
-}
-
-const _holdNeed = Duration(milliseconds: 1500);
-const _silence = Duration(seconds: 4);
-const _tol = 0.1;
 
 const userPalette = [
   0xFF0F7A5A,
@@ -72,6 +44,7 @@ class AppState extends ChangeNotifier {
   bool unitLb = false;
   ThemeMode themeMode = ThemeMode.system;
   bool autoAssign = true;
+  bool backgroundOn = false;
 
   bool reminderOn = false;
   int reminderHour = 7;
@@ -81,7 +54,10 @@ class AppState extends ChangeNotifier {
   LiveReading? live;
   Measurement? justSaved; // để Home chạy hiệu ứng kết quả
   int syncedThisSession = 0;
+  int importedFromBackground = 0;
 
+  final Map<String, WeighSession> _sessions = {};
+  Timer? _watchdog;
 
   Future<void> load() async {
     try {
@@ -101,6 +77,7 @@ class AppState extends ChangeNotifier {
       themeMode = ThemeMode.values.firstWhere((m) => m.name == s['theme'],
           orElse: () => ThemeMode.system);
       autoAssign = s['auto_assign'] != '0';
+      backgroundOn = s['bg_on'] == '1';
       reminderOn = s['rem_on'] == '1';
       reminderHour = int.tryParse(s['rem_h'] ?? '') ?? 7;
       reminderMinute = int.tryParse(s['rem_m'] ?? '') ?? 0;
@@ -112,10 +89,25 @@ class AppState extends ChangeNotifier {
     ble.onReading = _onReading;
     await ble.init();
     ble.setWatched(devices);
+    await NativeBridge.setAppForeground(true);
+    await importBackground();
+    await _syncNative();
     if (devices.isNotEmpty) await ble.startScan();
 
     loading = false;
     notifyListeners();
+  }
+
+  // ---------- Vòng đời app ----------
+  Future<void> onResumed() async {
+    await NativeBridge.setAppForeground(true);
+    await importBackground();
+    if (devices.isNotEmpty) await ble.startScan();
+  }
+
+  Future<void> onPaused() async {
+    await NativeBridge.setAppForeground(false);
+    await ble.stopScan(keepWanted: true);
   }
 
   // ---------- Người dùng ----------
@@ -168,18 +160,27 @@ class AppState extends ChangeNotifier {
   int nextColor() => userPalette[users.length % userPalette.length];
 
   // ---------- Thiết bị ----------
+  SavedDevice? deviceById(String? id) {
+    for (final d in devices) {
+      if (d.id == id) return d;
+    }
+    return null;
+  }
+
   Future<void> addDevice(SavedDevice d) async {
     await db.saveDevice(d);
     devices.removeWhere((x) => x.id == d.id);
     devices.add(d);
     ble.setWatched(devices);
     await ble.startScan();
+    await _syncNative();
     notifyListeners();
   }
 
   Future<void> renameDevice(SavedDevice d, String name) async {
     d.name = name;
     await db.saveDevice(d);
+    await _syncNative();
     notifyListeners();
   }
 
@@ -188,20 +189,70 @@ class AppState extends ChangeNotifier {
     await db.deleteDevice(id);
     devices.removeWhere((d) => d.id == id);
     ble.setWatched(devices);
+    await _syncNative();
     notifyListeners();
   }
 
-  // ---------- Nhận số đo ----------
-  final Map<String, _Session> _sessions = {};
-  Timer? _watchdog;
+  // ---------- Chạy nền ----------
+  Future<void> setBackground(bool v) async {
+    backgroundOn = v;
+    await db.setSetting('bg_on', v ? '1' : '0');
+    if (v) await NativeBridge.requestNotificationPermission();
+    await _syncNative();
+    notifyListeners();
+  }
 
+  Future<void> _syncNative() => NativeBridge.configureBackground(
+        enabled: backgroundOn && devices.any((d) => !d.proto.needsConnection),
+        devices: devices.map((d) => d.toNativeJson()).toList(),
+        unitLb: unitLb,
+      );
+
+  /// Nhập các lần cân mà dịch vụ chạy nền đã ghi khi app đóng.
+  Future<void> importBackground() async {
+    final items = await NativeBridge.drainBackground();
+    var added = 0;
+    for (final b in items) {
+      final dup = measurements.any((m) =>
+          m.deviceId == b.deviceId &&
+          (m.at.difference(b.at).inSeconds).abs() < 120 &&
+          (m.weightKg - b.kg).abs() < 0.1);
+      if (dup) continue;
+      final m = Measurement(
+        userId: _guessUser(b.kg),
+        weightKg: b.kg,
+        impedance: b.impedance,
+        at: b.at,
+        deviceId: b.deviceId,
+        deviceName: deviceById(b.deviceId)?.name,
+        source: 'bg',
+        extKey: 'bg@${b.deviceId}@${b.at.millisecondsSinceEpoch}',
+        method: CommitMethod.values.where((x) => x.name == b.method).firstOrNull,
+        samples: b.samples,
+        durationMs: b.durationMs,
+        minKg: b.minKg,
+        maxKg: b.maxKg,
+        raw: b.raw,
+      );
+      m.heightCm = userById(m.userId)?.heightCm;
+      if (await db.insertMeasurement(m) == null) continue;
+      measurements.add(m);
+      added++;
+    }
+    if (added > 0) {
+      measurements.sort((a, b) => a.at.compareTo(b.at));
+      importedFromBackground += added;
+      notifyListeners();
+    }
+  }
+
+  // ---------- Nhận số đo ----------
   void _startWatchdog() {
     _watchdog ??= Timer.periodic(const Duration(seconds: 1), (_) {
       final now = DateTime.now();
       _sessions.forEach((id, s) {
-        if (s.active && now.difference(s.lastPacket) > _silence) {
-          _endSession(id, s); // cân tắt màn hình / ngừng phát: chốt số tốt nhất
-        }
+        final c = s.checkSilence(now);
+        if (c != null) _commit(id, c);
       });
       final l = live;
       if (l != null && now.difference(l.at) > const Duration(seconds: 8)) {
@@ -218,114 +269,78 @@ class AppState extends ChangeNotifier {
       final ext = r.at != null
           ? '$deviceId@${r.at!.millisecondsSinceEpoch}@${(r.kg * 100).round()}'
           : null;
-      _finalize(deviceId, r, 'gatt', ext);
+      _save(Measurement(
+        weightKg: r.kg,
+        impedance: r.impedance,
+        at: r.at ?? now,
+        deviceId: deviceId,
+        source: 'gatt',
+        extKey: ext,
+        method: CommitMethod.gatt,
+        samples: 1,
+        raw: r.raw == null ? null : hex(r.raw!),
+      ));
       return;
     }
 
     _startWatchdog();
-    final s = _sessions.putIfAbsent(deviceId, () => _Session());
-    s.lastPacket = now;
-
-    if (r.removed || r.kg < 2) {
-      if (s.active) _endSession(deviceId, s);
-      return;
+    final s = _sessions.putIfAbsent(deviceId, () => WeighSession());
+    final step = s.feed(r, now);
+    if (step.ended) {
+      if (live?.deviceId == deviceId) live = null;
+    } else if (step.kg != null) {
+      live = LiveReading(deviceId, step.kg!, step.saved, now, hold: step.hold);
     }
-    if (r.kg < 5) return;
-
-    if (!s.active) {
-      s.reset();
-      s.active = true;
-      s.start = now;
-    }
-    if (s.lastKg == null || (r.kg - s.lastKg!).abs() > _tol) {
-      s.lastKg = r.kg;
-      s.holdStart = now;
-      s.holdPackets = 1;
-    } else {
-      s.holdPackets++;
-    }
-    if (r.impedance != null) s.impedance = r.impedance;
-    final held = now.difference(s.holdStart);
-    if (s.bestKg == null || held >= s.bestHold) {
-      s.bestHold = held;
-      s.bestKg = r.kg;
-    }
-
-    final saved =
-        s.committedKg != null && (r.kg - s.committedKg!).abs() <= 0.5;
-    final ready =
-        r.stable == true || (held >= _holdNeed && s.holdPackets >= 2);
-    final progress = saved || r.stable == true
-        ? 1.0
-        : (held.inMilliseconds / _holdNeed.inMilliseconds).clamp(0.0, 1.0);
-    live = LiveReading(deviceId, r.kg, saved, now, hold: progress);
-    notifyListeners();
-
-    if (ready && !saved) _commit(deviceId, s, r.kg);
-  }
-
-  void _endSession(String id, _Session s) {
-    if (s.active && s.committedKg == null) {
-      // Chưa chốt được trong lúc đứng: lấy số giữ lâu nhất, hoặc số cuối.
-      if (s.bestKg != null && s.bestHold >= const Duration(milliseconds: 300)) {
-        _commit(id, s, s.bestKg!);
-      } else if (s.lastKg != null &&
-          s.lastPacket.difference(s.start) >= const Duration(seconds: 2)) {
-        _commit(id, s, s.lastKg!);
-      }
-    }
-    s.reset();
-    if (live?.deviceId == id) live = null;
+    if (step.commit != null) _commit(deviceId, step.commit!);
     notifyListeners();
   }
 
-  void _commit(String id, _Session s, double kg) {
-    final now = DateTime.now();
-    s.committedKg = kg;
-    if (s.lastFinal != null &&
-        (kg - s.lastFinal!).abs() < 0.3 &&
-        now.difference(s.lastFinalAt) < const Duration(seconds: 90)) {
-      return;
-    }
+  void _commit(String deviceId, SessionCommit c) {
     // Cân Xiaomi hay phát lại số cũ khi vừa thức: bỏ nếu y hệt số vừa lưu.
+    final now = DateTime.now();
     final dup = measurements.any((m) =>
-        m.deviceId == id &&
+        m.deviceId == deviceId &&
         now.difference(m.at) < const Duration(minutes: 10) &&
-        (m.weightKg - kg).abs() < 0.01);
+        (m.weightKg - c.kg).abs() < 0.01);
     if (dup) return;
-    s.lastFinal = kg;
-    s.lastFinalAt = now;
-    if (live?.deviceId == id) {
-      live = LiveReading(id, kg, true, now, hold: 1);
+    if (live?.deviceId == deviceId) {
+      live = LiveReading(deviceId, c.kg, true, now, hold: 1);
     }
-    _finalize(id, Reading(kg, impedance: s.impedance), 'adv', null);
+    _save(Measurement(
+      weightKg: double.parse(c.kg.toStringAsFixed(2)),
+      impedance: c.impedance,
+      at: now,
+      deviceId: deviceId,
+      source: 'adv',
+      method: c.method,
+      samples: c.samples,
+      durationMs: c.durationMs,
+      minKg: c.minKg,
+      maxKg: c.maxKg,
+      raw: c.raw == null ? null : hex(c.raw!),
+    ));
   }
 
-  /// Nút "Lưu số này" trên màn hình khi tự chốt không ăn.
+  /// Nút "Lưu luôn số này" khi tự chốt không ăn.
   void saveLiveNow() {
     final l = live;
     if (l == null) return;
-    final s = _sessions.putIfAbsent(l.deviceId, () => _Session());
-    s.lastFinal = null;
-    _commit(l.deviceId, s, l.kg);
+    final s = _sessions[l.deviceId];
+    final c = s?.forceCommit(DateTime.now()) ??
+        SessionCommit(l.kg, CommitMethod.liveButton);
+    _commit(l.deviceId, c);
+    notifyListeners();
   }
 
-  Future<void> _finalize(
-      String deviceId, Reading r, String source, String? ext) async {
-    final m = Measurement(
-      userId: _guessUser(r.kg),
-      weightKg: double.parse(r.kg.toStringAsFixed(2)),
-      impedance: r.impedance,
-      at: r.at ?? DateTime.now(),
-      deviceId: deviceId,
-      source: source,
-      extKey: ext,
-    );
+  Future<void> _save(Measurement m) async {
+    m.userId ??= _guessUser(m.weightKg);
+    m.deviceName ??= deviceById(m.deviceId)?.name;
+    m.heightCm ??= userById(m.userId)?.heightCm;
     final id = await db.insertMeasurement(m);
     if (id == null) return; // bản ghi đã có (đồng bộ lặp)
     measurements.add(m);
     measurements.sort((a, b) => a.at.compareTo(b.at));
-    if (source == 'gatt') syncedThisSession++;
+    if (m.source == 'gatt') syncedThisSession++;
     justSaved = m;
     notifyListeners();
   }
@@ -354,19 +369,26 @@ class AppState extends ChangeNotifier {
 
   Future<void> assign(Measurement m, int userId) async {
     m.userId = userId;
-    await db.updateMeasurementUser(m.id!, userId);
+    m.heightCm ??= userById(userId)?.heightCm;
+    await db.updateMeasurement(m);
     notifyListeners();
   }
 
-  Future<void> addManual(double kg, DateTime at, int userId) async {
-    final m = Measurement(
-        userId: userId, weightKg: kg, at: at, source: 'manual');
-    await db.insertMeasurement(m);
-    measurements.add(m);
-    measurements.sort((a, b) => a.at.compareTo(b.at));
-    justSaved = m;
+  Future<void> updateNote(Measurement m, String note) async {
+    m.note = note.trim().isEmpty ? null : note.trim();
+    await db.updateMeasurement(m);
     notifyListeners();
   }
+
+  Future<void> addManual(double kg, DateTime at, int userId, {String? note}) =>
+      _save(Measurement(
+        userId: userId,
+        weightKg: kg,
+        at: at,
+        source: 'manual',
+        method: CommitMethod.manual,
+        note: note,
+      ));
 
   Future<void> deleteMeasurement(Measurement m) async {
     if (m.id != null) await db.deleteMeasurement(m.id!);
@@ -448,17 +470,26 @@ class AppState extends ChangeNotifier {
   }
 
   double? bmi(UserProfile u) {
+    final last = latestFor(u.id!);
+    if (last == null) return null;
     final h = u.heightCm;
-    final w = latestFor(u.id!)?.weightKg;
-    if (h == null || h < 50 || w == null) return null;
+    if (h == null || h < 50) return last.bmi;
     final m = h / 100;
-    return w / (m * m);
+    return last.weightKg / (m * m);
   }
+
+  double? bmrFor(UserProfile u, Measurement m) => bmrMifflin(
+        weightKg: m.weightKg,
+        heightCm: m.heightCm ?? u.heightCm,
+        age: u.ageAt(m.at),
+        sex: u.sex,
+      );
 
   // ---------- Cài đặt ----------
   Future<void> setUnitLb(bool v) async {
     unitLb = v;
     await db.setSetting('unit', v ? 'lb' : 'kg');
+    await _syncNative();
     notifyListeners();
   }
 
@@ -496,17 +527,48 @@ class AppState extends ChangeNotifier {
 
   // ---------- Xuất CSV ----------
   String buildCsv({int? userId}) {
-    String two(int n) => n.toString().padLeft(2, '0');
+    String q(String? s) => '"${(s ?? '').replaceAll('"', '""')}"';
+    String n(double? v, [int d = 2]) => v == null ? '' : v.toStringAsFixed(d);
     final b = StringBuffer('﻿');
-    b.writeln('Nguoi dung,Thoi gian,Can nang (kg),Can nang (lb),Tro khang,Nguon');
+    b.writeln([
+      'Nguoi dung', 'Thoi gian', 'Buoi', 'Can nang (kg)', 'Can nang (lb)',
+      'Chenh lan truoc (kg)', 'TB 7 ngay (kg)', 'BMI', 'Phan loai BMI (chau A)',
+      'Nang luong nghi (kcal)', 'Tro khang (ohm)', 'Chieu cao (cm)', 'Thiet bi',
+      'Nguon', 'Cach chot', 'Do tin cay', 'So goi', 'Thoi gian dung (s)',
+      'Thap nhat (kg)', 'Cao nhat (kg)', 'Ghi chu', 'Byte tho',
+    ].join(','));
     for (final m in measurements) {
       if (userId != null && m.userId != userId) continue;
-      final u = userById(m.userId)?.name ?? 'Chua gan';
-      final t =
-          '${m.at.year}-${two(m.at.month)}-${two(m.at.day)} ${two(m.at.hour)}:${two(m.at.minute)}';
-      final name = u.replaceAll('"', "'");
-      b.writeln('"$name",$t,${m.weightKg.toStringAsFixed(2)},'
-          '${(m.weightKg / lbToKg).toStringAsFixed(2)},${m.impedance ?? ''},${m.source}');
+      final u = userById(m.userId);
+      final prev = previousOf(m);
+      final hist = u == null ? <Measurement>[] : historyOf(u.id!);
+      final avg = movingAverage(hist, m.at);
+      final bmiV = m.bmi;
+      final bmr = u == null ? null : bmrFor(u, m);
+      b.writeln([
+        q(u?.name ?? 'Chua gan'),
+        '${m.at.year}-${two(m.at.month)}-${two(m.at.day)} ${two(m.at.hour)}:${two(m.at.minute)}',
+        q(dayPart(m.at)),
+        n(m.weightKg),
+        n(m.weightKg / lbToKg),
+        prev == null ? '' : n(m.weightKg - prev.weightKg),
+        n(avg),
+        n(bmiV, 1),
+        q(bmiV == null ? null : bmiBandAsia(bmiV).label),
+        n(bmr, 0),
+        m.impedance?.toString() ?? '',
+        n(m.heightCm, 0),
+        q(m.deviceName),
+        m.source,
+        q(m.method?.label),
+        m.confidence.name,
+        m.samples?.toString() ?? '',
+        m.durationMs == null ? '' : (m.durationMs! / 1000).toStringAsFixed(1),
+        n(m.minKg),
+        n(m.maxKg),
+        q(m.note),
+        q(m.raw),
+      ].join(','));
     }
     return b.toString();
   }

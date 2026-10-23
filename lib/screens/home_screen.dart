@@ -5,6 +5,7 @@ import '../app_state.dart';
 import '../ble_service.dart';
 import '../fmt.dart';
 import '../main.dart';
+import '../metrics.dart';
 import '../models.dart';
 import '../widgets/common.dart';
 import '../widgets/weight_chart.dart';
@@ -187,6 +188,13 @@ class _ConnectionCard extends StatelessWidget {
                     padding: const EdgeInsets.only(top: 4, bottom: 4),
                     child: Text(
                         'Đã đồng bộ ${st.syncedThisSession} bản ghi từ cân',
+                        style: Theme.of(context).textTheme.bodySmall),
+                  ),
+                if (st.importedFromBackground > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4, bottom: 4),
+                    child: Text(
+                        'Đã nhập ${st.importedFromBackground} lần cân ghi lúc app đóng',
                         style: Theme.of(context).textTheme.bodySmall),
                   ),
               ],
@@ -438,14 +446,7 @@ class _DeltaChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    bool? good;
-    if (goal != null && delta.abs() >= 0.05) {
-      good = (goal! < current) ? delta < 0 : delta > 0;
-    }
-    final color = good == null
-        ? cs.onSurfaceVariant
-        : (good ? Colors.green.shade600 : cs.error);
+    final color = deltaColor(context, delta, goal: goal, current: current);
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -677,7 +678,8 @@ class _MiniChart extends StatelessWidget {
     final u = st.activeUser;
     if (u == null) return const SizedBox.shrink();
     final from = DateTime.now().subtract(const Duration(days: 30));
-    final data = st.historyOf(u.id!).where((m) => m.at.isAfter(from)).toList();
+    final all = st.historyOf(u.id!);
+    final data = all.where((m) => m.at.isAfter(from)).toList();
     if (data.length < 2) return const SizedBox.shrink();
     return Card(
       child: Padding(
@@ -692,6 +694,7 @@ class _MiniChart extends StatelessWidget {
             ),
             WeightChart(
                 data: data,
+                average: [for (final m in data) movingAverage(all, m.at)],
                 lb: st.unitLb,
                 goalKg: u.goalKg,
                 color: Color(u.color),

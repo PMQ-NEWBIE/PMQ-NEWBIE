@@ -103,6 +103,9 @@ Future<void> showUserEditor(BuildContext context, UserProfile? user) async {
   final goal = TextEditingController(
       text: user?.goalKg == null ? '' : fmtW(user!.goalKg!, lb));
   var color = user?.color ?? st.nextColor();
+  Sex? sex = user?.sex;
+  final birth = TextEditingController(
+      text: user?.birthYear == null ? '' : '${user!.birthYear}');
 
   final result = await showModalBottomSheet<String>(
     context: context,
@@ -144,6 +147,33 @@ Future<void> showUserEditor(BuildContext context, UserProfile? user) async {
                 ),
               ),
             ]),
+            const SizedBox(height: 12),
+            Row(children: [
+              ChoiceChip(
+                label: const Text('Nam'),
+                selected: sex == Sex.male,
+                onSelected: (v) => setS(() => sex = v ? Sex.male : null),
+              ),
+              const SizedBox(width: 8),
+              ChoiceChip(
+                label: const Text('Nữ'),
+                selected: sex == Sex.female,
+                onSelected: (v) => setS(() => sex = v ? Sex.female : null),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextField(
+                  controller: birth,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Năm sinh', isDense: true),
+                ),
+              ),
+            ]),
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text('Giới tính và năm sinh dùng để tính năng lượng nghỉ (BMR). Không bắt buộc.',
+                  style: Theme.of(c).textTheme.bodySmall),
+            ),
             const SizedBox(height: 16),
             Wrap(
               spacing: 10,
@@ -215,6 +245,14 @@ Future<void> showUserEditor(BuildContext context, UserProfile? user) async {
         : (g != null && g > 0 ? fromUnit(g, lb) : null),
     goalStartKg: user?.goalStartKg,
     color: color,
+    sex: sex,
+    birthYear: _validYear(int.tryParse(birth.text.trim())),
   );
   await st.saveUser(u);
+}
+
+int? _validYear(int? y) {
+  if (y == null) return null;
+  final now = DateTime.now().year;
+  return (y > now - 110 && y <= now - 5) ? y : null;
 }

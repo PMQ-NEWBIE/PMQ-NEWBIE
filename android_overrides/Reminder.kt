@@ -103,6 +103,7 @@ class BootReceiver : BroadcastReceiver() {
         val a = intent.action ?: return
         if (a == Intent.ACTION_BOOT_COMPLETED || a == Intent.ACTION_MY_PACKAGE_REPLACED) {
             Reminder.schedule(ctx)
+            if (ScaleService.isEnabled(ctx)) ScaleService.start(ctx)
         }
     }
 }

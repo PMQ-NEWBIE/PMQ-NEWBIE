@@ -52,7 +52,9 @@ class Reading {
   final bool removed;
   final int? impedance;
   final DateTime? at;
-  Reading(this.kg, {this.stable, this.removed = false, this.impedance, this.at});
+  final List<int>? raw; // byte thô đã dùng để giải mã
+  Reading(this.kg,
+      {this.stable, this.removed = false, this.impedance, this.at, this.raw});
 }
 
 /// Mi Scale 1: service data 0x181D, 10 byte.
@@ -68,7 +70,8 @@ Reading? parseMi1(List<int> b) {
   } else {
     kg = raw / 200;
   }
-  return Reading(kg, stable: (c & 0x20) != 0, removed: (c & 0x80) != 0);
+  return Reading(kg,
+      stable: (c & 0x20) != 0, removed: (c & 0x80) != 0, raw: b);
 }
 
 /// Mi Body Composition Scale 2: service data 0x181B, 13 byte.
@@ -85,6 +88,7 @@ Reading? parseMi2(List<int> b) {
     stable: (c1 & 0x20) != 0,
     removed: (c1 & 0x80) != 0,
     impedance: hasImp && imp > 0 && imp < 3000 ? imp : null,
+    raw: b,
   );
 }
 
@@ -106,7 +110,7 @@ Reading? parseWeightMeasurement(List<int> b) {
     }
     i += 7;
   }
-  return Reading(kg, stable: true, at: at);
+  return Reading(kg, stable: true, at: at, raw: b);
 }
 
 /// Cấu hình dò byte: key luồng, offset, endian, hệ số chia.
@@ -137,7 +141,7 @@ Reading? parseLearned(AdvPacket p, LearnedConfig c) {
   final raw = c.bigEndian
       ? (b[c.offset] << 8) | b[c.offset + 1]
       : b[c.offset] | (b[c.offset + 1] << 8);
-  return Reading(raw / c.divisor);
+  return Reading(raw / c.divisor, raw: b);
 }
 
 Reading? parseAdv(SavedDevice d, AdvPacket p) {

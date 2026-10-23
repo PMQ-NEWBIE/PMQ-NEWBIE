@@ -1,10 +1,15 @@
 package vn.wuan.can_lo
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -40,6 +45,40 @@ class MainActivity : FlutterActivity() {
                             result.success(true)
                         }
                     }
+                    "configureBackground" -> {
+                        ScaleService.configure(
+                            this,
+                            call.argument<Boolean>("enabled") ?: false,
+                            call.argument<String>("devices") ?: "[]",
+                            call.argument<Boolean>("lb") ?: false,
+                        )
+                        result.success(true)
+                    }
+                    "setAppForeground" -> {
+                        ScaleService.appForeground = call.argument<Boolean>("value") ?: false
+                        result.success(true)
+                    }
+                    "drainBackground" -> result.success(ScaleService.drain(this))
+                    "backgroundStatus" -> result.success(
+                        mapOf(
+                            "running" to ScaleService.running,
+                            "batteryUnrestricted" to batteryUnrestricted(),
+                            "error" to ScaleService.lastError,
+                        )
+                    )
+                    "requestBatteryUnrestricted" -> {
+                        try {
+                            @SuppressLint("BatteryLife")
+                            val i = Intent(
+                                Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                Uri.parse("package:$packageName"),
+                            )
+                            startActivity(i)
+                        } catch (e: Exception) {
+                            startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                        }
+                        result.success(true)
+                    }
                     "saveFile" -> {
                         if (pendingResult != null) {
                             result.error("BUSY", "Đang lưu file khác", null)
@@ -58,6 +97,12 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private fun batteryUnrestricted(): Boolean {
+        if (Build.VERSION.SDK_INT < 23) return true
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        return pm.isIgnoringBatteryOptimizations(packageName)
     }
 
     @Deprecated("Deprecated in Java")

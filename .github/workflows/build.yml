@@ -35,8 +35,8 @@ jobs:
           cp android_overrides/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
           K=android/app/src/main/kotlin/vn/wuan/can_lo
           mkdir -p "$K"
-          cp android_overrides/MainActivity.kt "$K/MainActivity.kt"
-          cp android_overrides/Reminder.kt "$K/Reminder.kt"
+          rm -f "$K"/*.kt
+          cp android_overrides/*.kt "$K/"
           cat android_overrides/root_build_append.gradle.kts >> android/build.gradle.kts
           cat android/build.gradle.kts
 
@@ -57,6 +57,7 @@ jobs:
         run: |
           set -o pipefail
           flutter pub get 2>&1 | tee build.log
+          flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee -a build.log
           flutter build apk --release --build-name 1.0.${{ github.run_number }} --build-number ${{ github.run_number }} 2>&1 | tee -a build.log
 
       - name: Đẩy log lỗi lên nhánh ci-logs

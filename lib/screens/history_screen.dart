@@ -3,10 +3,12 @@ import 'package:flutter/material.dart';
 import '../app_state.dart';
 import '../fmt.dart';
 import '../main.dart';
+import '../metrics.dart';
 import '../models.dart';
 import '../native.dart';
 import '../widgets/common.dart';
 import '../widgets/weight_chart.dart';
+import 'measurement_sheet.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
@@ -129,6 +131,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           child: Center(child: Text('Không có lần cân nào trong khoảng này')))
                       : WeightChart(
                           data: data,
+                          average: [for (final m in data) movingAverage(all, m.at)],
                           lb: st.unitLb,
                           goalKg: u.goalKg,
                           color: Color(u.color),
@@ -239,8 +242,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final icon = switch (m.source) {
       'manual' => Icons.edit_outlined,
       'gatt' => Icons.sync,
+      'bg' => Icons.bedtime_outlined,
       _ => Icons.bluetooth,
     };
+    final u = st.userById(m.userId);
     final tile = ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 8),
       leading: _compare
@@ -253,17 +258,29 @@ class _HistoryScreenState extends State<HistoryScreen> {
           style: const TextStyle(
               fontWeight: FontWeight.w600,
               fontFeatures: [FontFeature.tabularFigures()])),
-      subtitle: Text(
-          '${fmtDate(m.at)}${m.impedance != null ? ' · ${m.impedance} Ω' : ''}'),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('${dayPart(m.at)} · ${fmtDate(m.at)}'),
+          if (m.note != null)
+            Text(m.note!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontStyle: FontStyle.italic, color: cs.onSurfaceVariant)),
+          if (m.confidence != Confidence.high)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: ConfidenceChip(m.confidence, dense: true),
+            ),
+        ],
+      ),
       trailing: delta == null
           ? null
           : Text(fmtDelta(delta, st.unitLb),
               style: TextStyle(
                   fontWeight: FontWeight.w600,
-                  color: delta.abs() < 0.05
-                      ? cs.onSurfaceVariant
-                      : (delta > 0 ? cs.error : Colors.green.shade600))),
-      onTap: _compare ? () => _toggle(m) : null,
+                  color: deltaColor(context, delta, goal: u?.goalKg, current: m.weightKg))),
+      onTap: _compare ? () => _toggle(m) : () => showMeasurementDetail(context, m),
     );
     if (_compare) return tile;
     return Dismissible(
