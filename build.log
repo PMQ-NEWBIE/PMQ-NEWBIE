@@ -1,0 +1,152 @@
+Resolving dependencies...
+Downloading packages...
+  bluez 0.8.3 (0.9.0 available)
+  dbus 0.7.15 (0.8.0 available)
+  flutter_blue_plus 1.36.8 (2.3.14 available)
+  flutter_blue_plus_android 7.0.4 (9.0.5 available)
+  flutter_blue_plus_darwin 7.0.3 (9.0.5 available)
+  flutter_blue_plus_linux 7.0.3 (9.0.4 available)
+  flutter_blue_plus_platform_interface 7.0.0 (9.0.4 available)
+  flutter_blue_plus_web 7.0.2 (9.0.4 available)
+  flutter_lints 4.0.0 (6.0.0 available)
+  lints 4.0.0 (6.1.0 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.3 (1.19.0 available)
+  petitparser 7.0.2 (7.1.0 available)
+  test_api 0.7.12 (0.7.15 available)
+  vector_math 2.4.0 (2.4.3 available)
+  xml 7.0.1 (7.1.0 available)
+Got dependencies!
+16 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Analyzing PMQ-NEWBIE...                                         
+
+warning • The operand can't be 'null', so the condition is always 'false'. Try removing the condition, an enclosing condition, or the whole conditional statement • lib/screens/devices_screen.dart:449:42 • unnecessary_null_comparison
+
+1 issue found. (ran in 6.4s)
+
+::group::✅ Passing tests
+✅ /home/runner/work/PMQ-NEWBIE/PMQ-NEWBIE/test/metrics_test.dart: BMI theo ngưỡng châu Á
+✅ /home/runner/work/PMQ-NEWBIE/PMQ-NEWBIE/test/metrics_test.dart: Mifflin–St Jeor
+✅ /home/runner/work/PMQ-NEWBIE/PMQ-NEWBIE/test/metrics_test.dart: trung bình 7 ngày
+✅ /home/runner/work/PMQ-NEWBIE/PMQ-NEWBIE/test/metrics_test.dart: BMI bản ghi dùng chiều cao lúc cân
+✅ /home/runner/work/PMQ-NEWBIE/PMQ-NEWBIE/test/session_test.dart: cân báo ổn định thì chốt ngay
+✅ /home/runner/work/PMQ-NEWBIE/PMQ-NEWBIE/test/session_test.dart: số đứng yên 1,5 giây thì chốt kiểu hold
+✅ /home/runner/work/PMQ-NEWBIE/PMQ-NEWBIE/test/session_test.dart: chưa chốt mà cân im lặng thì lấy số giữ lâu nhất
+✅ /home/runner/work/PMQ-NEWBIE/PMQ-NEWBIE/test/session_test.dart: bước xuống (cờ removed) kết thúc phiên và chốt
+✅ /home/runner/work/PMQ-NEWBIE/PMQ-NEWBIE/test/session_test.dart: cân phát lại số cũ (không về 0, không tăng dần) thì không lưu trùng
+✅ /home/runner/work/PMQ-NEWBIE/PMQ-NEWBIE/test/session_test.dart: bước xuống rồi cân lại đúng số cũ vẫn được lưu
+✅ /home/runner/work/PMQ-NEWBIE/PMQ-NEWBIE/test/session_test.dart: cân lại có đoạn số tăng dần vẫn được lưu dù cân không về 0
+✅ /home/runner/work/PMQ-NEWBIE/PMQ-NEWBIE/test/session_test.dart: bỏ qua số nhỏ hơn 5 kg
+✅ /home/runner/work/PMQ-NEWBIE/PMQ-NEWBIE/test/session_test.dart: bấm lưu tay khi đang đo
+✅ /home/runner/work/PMQ-NEWBIE/PMQ-NEWBIE/test/protocols_test.dart: Mi Scale 1: kg, cờ ổn định
+✅ /home/runner/work/PMQ-NEWBIE/PMQ-NEWBIE/test/protocols_test.dart: Mi Scale 1: cờ bước xuống
+✅ /home/runner/work/PMQ-NEWBIE/PMQ-NEWBIE/test/protocols_test.dart: Mi Scale 2: kg + trở kháng
+✅ /home/runner/work/PMQ-NEWBIE/PMQ-NEWBIE/test/protocols_test.dart: Weight Measurement chuẩn 0x2A9D
+✅ /home/runner/work/PMQ-NEWBIE/PMQ-NEWBIE/test/protocols_test.dart: dò byte tìm đúng vị trí và hệ số
+✅ /home/runner/work/PMQ-NEWBIE/PMQ-NEWBIE/test/protocols_test.dart: chuẩn hoá UUID
+✅ /home/runner/work/PMQ-NEWBIE/PMQ-NEWBIE/test/protocols_test.dart: nhận diện kiểu cân từ gói quảng bá
+✅ /home/runner/work/PMQ-NEWBIE/PMQ-NEWBIE/test/protocols_test.dart: dò byte vẫn đọc được khi mã hãng đổi theo cân nặng
+✅ /home/runner/work/PMQ-NEWBIE/PMQ-NEWBIE/test/protocols_test.dart: nhận lại cân khi đổi địa chỉ bằng dấu vân tay
+::endgroup::
+
+🎉 22 tests passed.
+Running Gradle task 'assembleRelease'...                        
+Loading package information...                                                  
+Loading local repository...                                                     
+[                                       ] 3% Loading local repository...        
+[                                       ] 3% Fetch remote repository...         
+[=                                      ] 3% Fetch remote repository...         
+[=                                      ] 4% Fetch remote repository...         
+[=                                      ] 5% Fetch remote repository...         
+[==                                     ] 5% Fetch remote repository...         
+[==                                     ] 6% Fetch remote repository...         
+[==                                     ] 7% Fetch remote repository...         
+[==                                     ] 7% Computing updates...               
+[===                                    ] 8% Computing updates...               
+[===                                    ] 10% Computing updates...              
+[===                                    ] 10% Installing NDK (Side by side) 28.2
+[===                                    ] 10% Downloading android-ndk-r28c-linux
+[====                                   ] 10% Downloading android-ndk-r28c-linux
+[====                                   ] 11% Downloading android-ndk-r28c-linux
+[====                                   ] 12% Downloading android-ndk-r28c-linux
+[=====                                  ] 13% Downloading android-ndk-r28c-linux
+[=====                                  ] 14% Downloading android-ndk-r28c-linux
+[=====                                  ] 15% Downloading android-ndk-r28c-linux
+[======                                 ] 15% Downloading android-ndk-r28c-linux
+[======                                 ] 16% Downloading android-ndk-r28c-linux
+[======                                 ] 17% Downloading android-ndk-r28c-linux
+[=======                                ] 18% Downloading android-ndk-r28c-linux
+[=======                                ] 19% Downloading android-ndk-r28c-linux
+[=======                                ] 20% Downloading android-ndk-r28c-linux
+[========                               ] 20% Downloading android-ndk-r28c-linux
+[========                               ] 21% Downloading android-ndk-r28c-linux
+[========                               ] 22% Downloading android-ndk-r28c-linux
+[=========                              ] 23% Downloading android-ndk-r28c-linux
+[=========                              ] 24% Downloading android-ndk-r28c-linux
+[=========                              ] 25% Downloading android-ndk-r28c-linux
+[==========                             ] 25% Downloading android-ndk-r28c-linux
+[==========                             ] 26% Downloading android-ndk-r28c-linux
+[==========                             ] 27% Downloading android-ndk-r28c-linux
+[===========                            ] 28% Downloading android-ndk-r28c-linux
+[===========                            ] 29% Downloading android-ndk-r28c-linux
+[===========                            ] 30% Downloading android-ndk-r28c-linux
+[============                           ] 30% Downloading android-ndk-r28c-linux
+[============                           ] 31% Downloading android-ndk-r28c-linux
+[============                           ] 32% Downloading android-ndk-r28c-linux
+[============                           ] 33% Downloading android-ndk-r28c-linux
+[============                           ] 33% Unzipping...                      
+[============                           ] 33% Unzipping... android-ndk-r28c/    
+[============                           ] 33% Unzipping... android-ndk-r28c/READ
+[=============                          ] 33% Unzipping... android-ndk-r28c/READ
+[=============                          ] 33% Unzipping... android-ndk-r28c/meta
+[=============                          ] 33% Unzipping... android-ndk-r28c/shad
+[=============                          ] 33% Unzipping... android-ndk-r28c/ndk-
+[=============                          ] 33% Unzipping... android-ndk-r28c/wrap
+[=============                          ] 33% Unzipping... android-ndk-r28c/ndk-
+[=============                          ] 33% Unzipping... android-ndk-r28c/tool
+[=============                          ] 34% Unzipping... android-ndk-r28c/tool
+[=============                          ] 35% Unzipping... android-ndk-r28c/tool
+[==============                         ] 35% Unzipping... android-ndk-r28c/tool
+[==============                         ] 36% Unzipping... android-ndk-r28c/tool
+[==============                         ] 37% Unzipping... android-ndk-r28c/tool
+[===============                        ] 38% Unzipping... android-ndk-r28c/tool
+[===============                        ] 39% Unzipping... android-ndk-r28c/tool
+[===============                        ] 40% Unzipping... android-ndk-r28c/tool
+[================                       ] 40% Unzipping... android-ndk-r28c/tool
+[================                       ] 41% Unzipping... android-ndk-r28c/tool
+[================                       ] 42% Unzipping... android-ndk-r28c/tool
+[=================                      ] 43% Unzipping... android-ndk-r28c/tool
+[=================                      ] 44% Unzipping... android-ndk-r28c/tool
+[=================                      ] 45% Unzipping... android-ndk-r28c/tool
+[==================                     ] 45% Unzipping... android-ndk-r28c/tool
+[==================                     ] 46% Unzipping... android-ndk-r28c/tool
+[==================                     ] 47% Unzipping... android-ndk-r28c/tool
+[===================                    ] 48% Unzipping... android-ndk-r28c/tool
+[===================                    ] 49% Unzipping... android-ndk-r28c/tool
+[===================                    ] 50% Unzipping... android-ndk-r28c/tool
+[====================                   ] 50% Unzipping... android-ndk-r28c/tool
+[====================                   ] 51% Unzipping... android-ndk-r28c/tool
+[====================                   ] 52% Unzipping... android-ndk-r28c/tool
+[=====================                  ] 53% Unzipping... android-ndk-r28c/tool
+[=====================                  ] 54% Unzipping... android-ndk-r28c/tool
+[=====================                  ] 54% Unzipping... android-ndk-r28c/buil
+[=====================                  ] 54% Unzipping... android-ndk-r28c/sour
+[=====================                  ] 54% Unzipping... android-ndk-r28c/NOTI
+[=====================                  ] 54% Unzipping... android-ndk-r28c/ndk-
+[=====================                  ] 54% Unzipping... android-ndk-r28c/NOTI
+[=====================                  ] 54% Unzipping... android-ndk-r28c/pyth
+[=====================                  ] 54% Unzipping... android-ndk-r28c/preb
+[=====================                  ] 54% Unzipping... android-ndk-r28c/ndk-
+[=====================                  ] 54% Unzipping... android-ndk-r28c/sour
+[=====================                  ] 54% Unzipping... android-ndk-r28c/simp
+[=====================                  ] 55% Unzipping... android-ndk-r28c/simp
+[=====================                  ] 55% Unzipping... android-ndk-r28c/CHAN
+[=======================================] 100% Unzipping... android-ndk-r28c/CHA
+
+Font asset "MaterialIcons-Regular.otf" was tree-shaken, reducing it from 1645184 to 8812 bytes (99.5% reduction). Tree-shaking can be disabled by providing the --no-tree-shake-icons flag when building your app.
+Caught exception: Already watching path: /home/runner/work/PMQ-NEWBIE/PMQ-NEWBIE/android
+Running Gradle task 'assembleRelease'...                          195.0s
+✓ Built build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk (16.0MB)
+✓ Built build/app/outputs/flutter-apk/app-arm64-v8a-release.apk (18.6MB)
+✓ Built build/app/outputs/flutter-apk/app-x86_64-release.apk (20.1MB)
