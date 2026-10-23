@@ -50,4 +50,19 @@ void main() {
     expect(detectProto(mi2), isNotNull);
     expect(detectProto(AdvPacket({}, {}, [])), isNull);
   });
+
+  test('dò byte vẫn đọc được khi mã hãng đổi theo cân nặng', () {
+    final cfg = LearnedConfig('m:4660', 1, false, 200);
+    final p = AdvPacket({0x9999: [0x00, 0x70, 0x35, 0x00]}, {}, []);
+    expect(parseLearned(p, cfg)!.kg, closeTo(68.4, 0.001));
+  });
+
+  test('nhận lại cân khi đổi địa chỉ bằng dấu vân tay', () {
+    final p1 = AdvPacket({0x1234: [0, 1, 2, 3]}, {}, []);
+    final fp = fingerprintOf('MY_SCALE', p1);
+    final p2 = AdvPacket({0x5678: [9, 9, 9, 9]}, {}, []);
+    expect(matchesFingerprint(fp, 'MY_SCALE', p2), isTrue);
+    expect(matchesFingerprint(fp, 'Tai nghe', p2), isFalse);
+    expect(matchesFingerprint(fp, 'MY_SCALE', AdvPacket({0x1: [1, 2]}, {}, [])), isFalse);
+  });
 }

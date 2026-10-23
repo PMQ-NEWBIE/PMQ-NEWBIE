@@ -469,12 +469,14 @@ class _BigNumber extends StatelessWidget {
       tween: Tween(end: target),
       duration: const Duration(milliseconds: 600),
       curve: Curves.easeOutCubic,
-      builder: (context, v, _) => Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+      builder: (context, v, _) => FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Row(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.baseline,
         textBaseline: TextBaseline.alphabetic,
         children: [
-          Text(v.toStringAsFixed(1),
+          Text(v.toStringAsFixed(2),
               style: TextStyle(
                   fontSize: 64,
                   fontWeight: FontWeight.w700,
@@ -487,6 +489,7 @@ class _BigNumber extends StatelessWidget {
               style: TextStyle(
                   fontSize: 22, color: color.withValues(alpha: 0.6))),
         ],
+      ),
       ),
     );
   }
@@ -507,7 +510,7 @@ class _DeltaChip extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Icon(
-            delta.abs() < 0.05
+            delta.abs() < 0.005
                 ? Icons.remove
                 : (delta > 0 ? Icons.arrow_upward : Icons.arrow_downward),
             size: 16,

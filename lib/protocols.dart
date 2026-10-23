@@ -136,7 +136,13 @@ class LearnedConfig {
 }
 
 Reading? parseLearned(AdvPacket p, LearnedConfig c) {
-  final b = p.streams[c.key];
+  var b = p.streams[c.key];
+  // Nhiều cân rẻ nhét số đo vào luôn 2 byte "mã hãng" của manufacturer data,
+  // nên mã hãng đổi theo cân nặng. Khi đó lấy luồng manufacturer duy nhất.
+  if (b == null && c.key.startsWith('m:')) {
+    final m = p.mfr.values.where((v) => v.length > c.offset + 1).toList();
+    if (m.length == 1) b = m.first;
+  }
   if (b == null || c.offset + 1 >= b.length) return null;
   final raw = c.bigEndian
       ? (b[c.offset] << 8) | b[c.offset + 1]
@@ -201,4 +207,33 @@ List<Candidate> findCandidates(AdvPacket p, double? knownKg) {
     return 0;
   });
   return out;
+}
+
+/// Dấu vân tay của cân: tên + các luồng dữ liệu và độ dài, để nhận ra cân
+/// kể cả khi nó đổi địa chỉ Bluetooth sau mỗi lần thức dậy.
+Map<String, dynamic> fingerprintOf(String name, AdvPacket p) => {
+      'name': name,
+      'm': p.mfr.values.map((v) => v.length).toList()..sort(),
+      's': {for (final e in p.svc.entries) e.key: e.value.length},
+    };
+
+bool matchesFingerprint(Map<String, dynamic>? fp, String name, AdvPacket p) {
+  if (fp == null) return false;
+  final fpName = (fp['name'] as String?) ?? '';
+  if (fpName.isNotEmpty && fpName != name) return false;
+  final now = fingerprintOf(name, p);
+  final m1 = ((fp['m'] as List?) ?? const []).map((e) => (e as num).toInt()).toList();
+  final m2 = now['m'] as List<int>;
+  if (m1.length != m2.length) return false;
+  for (var i = 0; i < m1.length; i++) {
+    if (m1[i] != m2[i]) return false;
+  }
+  final s1 = ((fp['s'] as Map?) ?? const {}).cast<String, dynamic>();
+  final s2 = now['s'] as Map<String, int>;
+  if (s1.length != s2.length) return false;
+  for (final e in s1.entries) {
+    if (s2[e.key] != (e.value as num).toInt()) return false;
+  }
+  // Không tên và không có dữ liệu riêng thì quá dễ nhầm với thiết bị khác.
+  return fpName.isNotEmpty || m2.isNotEmpty || s2.isNotEmpty;
 }

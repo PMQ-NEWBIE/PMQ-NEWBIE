@@ -99,6 +99,7 @@ class ScaleService : Service() {
     private class Dev(
         val id: String, val name: String, val proto: String,
         val key: String?, val offset: Int, val be: Boolean, val div: Double,
+        val advName: String?, // tên cân tự phát, để nhận lại khi cân đổi địa chỉ
     )
 
     private class Rd(val kg: Double, val stable: Boolean?, val removed: Boolean, val imp: Int?, val raw: ByteArray)
@@ -226,10 +227,12 @@ class ScaleService : Service() {
                 if (proto == "gattStandard") continue // cân kết nối tự giữ lịch sử, mở app là đồng bộ
                 if (!BluetoothAdapter.checkBluetoothAddress(id)) continue
                 val c = o.optJSONObject("config") ?: JSONObject()
+                val fpName = c.optJSONObject("fp")?.optString("name", "")
                 out[id] = Dev(
                     id, o.optString("name", "Cân"), proto,
                     if (c.has("key")) c.getString("key") else null,
                     c.optInt("offset", 0), c.optBoolean("be", false), c.optDouble("div", 100.0),
+                    if (fpName.isNullOrEmpty()) null else fpName,
                 )
             }
         } catch (e: Exception) {
@@ -245,7 +248,9 @@ class ScaleService : Service() {
         val adapter = bm.adapter ?: return
         if (!adapter.isEnabled) return
         val sc = adapter.bluetoothLeScanner ?: return
-        val filters = devices.keys.map { ScanFilter.Builder().setDeviceAddress(it).build() }
+        val filters = devices.keys.map { ScanFilter.Builder().setDeviceAddress(it).build() } +
+            devices.values.mapNotNull { it.advName }.distinct()
+                .map { ScanFilter.Builder().setDeviceName(it).build() }
         val settings = ScanSettings.Builder()
             .setScanMode(if (fast) ScanSettings.SCAN_MODE_LOW_LATENCY else ScanSettings.SCAN_MODE_LOW_POWER)
             .build()
@@ -301,6 +306,7 @@ class ScaleService : Service() {
         val key = d.key ?: return null
         val b: ByteArray? = when {
             key.startsWith("m:") -> key.substring(2).toIntOrNull()?.let { rec.getManufacturerSpecificData(it) }
+                ?: onlyMfr(rec, d.offset + 2)
             key.startsWith("s:") -> try { rec.getServiceData(ParcelUuid.fromString(key.substring(2))) } catch (e: Exception) { null }
             else -> null
         }
@@ -308,6 +314,19 @@ class ScaleService : Service() {
         val raw = if (d.be) (u8(b, d.offset) shl 8) or u8(b, d.offset + 1)
         else u8(b, d.offset) or (u8(b, d.offset + 1) shl 8)
         return Rd(raw / d.div, null, false, null, b)
+    }
+
+    /** Cân rẻ hay nhét số đo vào mã hãng: lấy luồng manufacturer duy nhất. */
+    private fun onlyMfr(rec: ScanRecord, minLen: Int): ByteArray? {
+        val sa = rec.manufacturerSpecificData ?: return null
+        var found: ByteArray? = null
+        for (i in 0 until sa.size()) {
+            val v = sa.valueAt(i) ?: continue
+            if (v.size < minLen) continue
+            if (found != null) return null
+            found = v
+        }
+        return found
     }
 
     private fun parse(d: Dev, rec: ScanRecord): Rd? = when (d.proto) {
@@ -320,7 +339,9 @@ class ScaleService : Service() {
     // ---------- Chốt số theo phiên ----------
     private fun handle(r: ScanResult) {
         val id = r.device?.address?.uppercase(Locale.US) ?: return
-        val dev = devices[id] ?: return
+        val advName = r.scanRecord?.deviceName
+        // Cân đổi địa chỉ thì nhận lại bằng tên nó tự phát.
+        val dev = devices[id] ?: devices.values.firstOrNull { it.advName != null && it.advName == advName } ?: return
         if (appForeground) return // app đang mở thì app tự lo, tránh lưu trùng
         val rec = r.scanRecord ?: return
         val rd = parse(dev, rec) ?: return
@@ -434,8 +455,8 @@ class ScaleService : Service() {
 
     private fun notifyResult(d: Dev, kg: Double) {
         val lb = prefs(this).getBoolean("lb", false)
-        val txt = if (lb) String.format(Locale.US, "%.1f lb", kg / 0.45359237)
-        else String.format(Locale.US, "%.1f kg", kg)
+        val txt = if (lb) String.format(Locale.US, "%.2f lb", kg / 0.45359237)
+        else String.format(Locale.US, "%.2f kg", kg)
         val n = builder(CH_RESULT)
             .setSmallIcon(R.drawable.ic_stat_scale)
             .setContentTitle("Đã ghi $txt")

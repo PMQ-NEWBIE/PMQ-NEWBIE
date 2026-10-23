@@ -196,7 +196,9 @@ class _DevicesScreenState extends State<DevicesScreen> {
                       device: d, link: st.ble.links[d.id], scanning: st.ble.scanning),
                   Padding(
                     padding: const EdgeInsets.only(left: 30, bottom: 4),
-                    child: Text('${d.proto.label} · ${d.id}',
+                    child: Text(
+                        '${d.proto.label} · ${d.id}'
+                        '${st.ble.links[d.id]?.lastKg == null ? '' : ' · vừa đọc ${fmtWU(st.ble.links[d.id]!.lastKg!, st.unitLb)}'}',
                         style: Theme.of(context).textTheme.bodySmall),
                   ),
                 ],
@@ -304,12 +306,26 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
 
   Future<void> _save(Proto proto, {Map<String, dynamic>? config, required String name}) async {
     final st = AppScope.read(context);
+    final seen = st.ble.seen[widget.deviceId];
     final n = await _askName(context, name.isEmpty ? 'Cân nhà mình' : name);
     if (n == null || !mounted) return;
-    await st.addDevice(SavedDevice(id: widget.deviceId, name: n, proto: proto, config: config));
+    final cfg = <String, dynamic>{...?config};
+    // Lưu dấu vân tay để nhận ra cân kể cả khi nó đổi địa chỉ Bluetooth.
+    if (seen != null) cfg['fp'] = fingerprintOf(seen.name, seen.packet);
+    await st.addDevice(SavedDevice(id: widget.deviceId, name: n, proto: proto, config: cfg));
     if (!mounted) return;
-    toast(context, 'Đã thêm $n. Bước lên cân là số tự vào app.');
-    Navigator.of(context).pop();
+    if (!proto.needsConnection && !st.backgroundOn) {
+      final on = await confirmDialog(context,
+          title: 'Ghi cả khi app đóng?',
+          message:
+              'Đã thêm $n. Từ giờ mở app là số tự lưu. Bật chạy nền thì cả lúc app đóng, bước lên cân cũng tự lưu và có thông báo.',
+          ok: 'Bật chạy nền',
+          danger: false);
+      if (on) await st.setBackground(true);
+    } else {
+      toast(context, 'Đã thêm $n. Bước lên cân là số tự vào app.');
+    }
+    if (mounted) Navigator.of(context).pop();
   }
 
   @override
@@ -331,7 +347,25 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
           final proto = detectProto(d.packet);
           final known = double.tryParse(_known.text.replaceAll(',', '.'));
           final knownKg = known == null ? null : fromUnit(known, st.unitLb);
-          final cands = findCandidates(d.packet, knownKg).take(30).toList();
+          final now = DateTime.now();
+          final recent = d.recent
+              .where((e) => now.difference(e.$1) < const Duration(seconds: 5))
+              .map((e) => e.$2)
+              .toList();
+          int hits(Candidate c) => knownKg == null
+              ? 0
+              : recent.where((p) {
+                  final r = parseLearned(p, c.cfg);
+                  return r != null && (r.kg - knownKg).abs() <= 0.15;
+                }).length;
+          final cands = findCandidates(d.packet, knownKg).take(40).toList();
+          final score = {for (final c in cands) c: hits(c)};
+          cands.sort((a, b) {
+            final h = score[b]!.compareTo(score[a]!);
+            if (h != 0) return h;
+            if (a.match != b.match) return a.match ? -1 : 1;
+            return 0;
+          });
           final age = DateTime.now().difference(d.lastSeen).inSeconds;
 
           return ListView(
@@ -404,8 +438,11 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
                           title: Text(fmtWU(c.value, st.unitLb, digits: 2),
                               style: const TextStyle(fontWeight: FontWeight.w700)),
                           subtitle: Text(
-                              '${streamLabel(c.cfg.key)} · byte ${c.cfg.offset} · ${c.cfg.bigEndian ? 'BE' : 'LE'} · ÷${c.cfg.divisor.toStringAsFixed(0)}'),
-                          trailing: c.match ? const Icon(Icons.check_circle) : null,
+                              '${streamLabel(c.cfg.key)} · byte ${c.cfg.offset} · ${c.cfg.bigEndian ? 'BE' : 'LE'} · ÷${c.cfg.divisor.toStringAsFixed(0)}'
+                              '${knownKg == null ? '' : ' · khớp ${score[c]}/${recent.length} gói'}'),
+                          trailing: c.match
+                              ? Icon(score[c]! >= 3 ? Icons.verified : Icons.check_circle)
+                              : null,
                           onTap: () => _save(Proto.learned, config: c.cfg.toJson(), name: d.name),
                         ),
                       ),

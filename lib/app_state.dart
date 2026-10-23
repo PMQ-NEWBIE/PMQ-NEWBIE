@@ -94,6 +94,7 @@ class AppState extends ChangeNotifier {
     }
 
     ble.onReading = _onReading;
+    ble.onRemap = _onRemap;
     await ble.init();
     ble.setWatched(devices);
     await NativeBridge.setAppForeground(true);
@@ -180,6 +181,14 @@ class AppState extends ChangeNotifier {
     devices.add(d);
     ble.setWatched(devices);
     await ble.startScan();
+    await _syncNative();
+    notifyListeners();
+  }
+
+  /// Cân đổi địa chỉ Bluetooth: lưu địa chỉ mới để lần sau nhận ngay.
+  Future<void> _onRemap(String oldId, SavedDevice d) async {
+    await db.deleteDevice(oldId);
+    await db.saveDevice(d);
     await _syncNative();
     notifyListeners();
   }

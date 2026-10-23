@@ -18,6 +18,8 @@ class SeenDevice {
   AdvPacket packet;
   final Map<String, List<int>> prev = {};
   int packets = 0;
+  /// Các gói gần đây, dùng để chấm điểm vị trí byte khi dò cân lạ.
+  final List<(DateTime, AdvPacket)> recent = [];
 
   SeenDevice(this.id, this.name, this.rssi, this.lastSeen, this.connectable,
       this.packet);
@@ -41,6 +43,7 @@ class DeviceLink {
   LinkState state = LinkState.idle;
   String? error;
   DateTime? lastPacket;
+  double? lastKg; // số đọc được gần nhất, để người dùng thấy app đang nghe đúng cân
   int failures = 0;
   DateTime nextTry = DateTime.fromMillisecondsSinceEpoch(0);
   bool busy = false;
@@ -50,6 +53,7 @@ class DeviceLink {
 
 typedef ReadingHandler = void Function(String deviceId, Reading r,
     {required bool fromGatt});
+typedef RemapHandler = void Function(String oldId, SavedDevice device);
 
 class BleService extends ChangeNotifier {
   BluetoothAdapterState adapter = BluetoothAdapterState.unknown;
@@ -61,6 +65,9 @@ class BleService extends ChangeNotifier {
   final Map<String, DeviceLink> links = {};
   Map<String, SavedDevice> watched = {};
   ReadingHandler? onReading;
+  /// Cân đổi địa chỉ Bluetooth (nhiều cân rẻ đổi sau mỗi lần thức dậy).
+  RemapHandler? onRemap;
+  DateTime? _scanStartedAt;
 
   StreamSubscription? _adapterSub, _scanSub, _isScanSub;
   Timer? _tick;
@@ -105,6 +112,13 @@ class BleService extends ChangeNotifier {
           l.state = LinkState.lost;
           _dirty = true;
         }
+      }
+      // Android tự hạ cấp lượt quét không lọc sau khoảng 30 phút, nên quét lại.
+      final st = _scanStartedAt;
+      if (scanning && _wantScan && st != null &&
+          now.difference(st) > const Duration(minutes: 20)) {
+        _scanStartedAt = null;
+        stopScan(keepWanted: true).then((_) => startScan());
       }
       if (_dirty) {
         _dirty = false;
@@ -152,6 +166,7 @@ class BleService extends ChangeNotifier {
         continuousUpdates: true,
         androidScanMode: AndroidScanMode.lowLatency,
       );
+      _scanStartedAt = DateTime.now();
       for (final l in links.values) {
         if (l.state == LinkState.idle) l.state = LinkState.listening;
       }
@@ -207,11 +222,40 @@ class BleService extends ChangeNotifier {
         s.connectable = ad.connectable;
         s.packets++;
       }
+      final sd = seen[id]!;
+      sd.recent.add((DateTime.now(), packet));
+      if (sd.recent.length > 60) sd.recent.removeAt(0);
 
-      final dev = watched[id];
+      var dev = watched[id];
+      dev ??= _remapIfSameScale(id, name, packet);
       if (dev != null) _handleWatched(dev, packet);
     }
     _dirty = true;
+  }
+
+  /// Gói từ địa chỉ lạ nhưng giống hệt "dấu vân tay" một cân đã lưu mà
+  /// lâu không nghe thấy: coi là cân đó vừa đổi địa chỉ.
+  SavedDevice? _remapIfSameScale(String id, String name, AdvPacket packet) {
+    final now = DateTime.now();
+    for (final d in watched.values) {
+      if (d.proto.needsConnection) continue;
+      final last = links[d.id]?.lastPacket;
+      if (last != null && now.difference(last) < const Duration(seconds: 20)) {
+        continue; // cân cũ vẫn đang phát, không phải nó
+      }
+      final fp = (d.config['fp'] as Map?)?.cast<String, dynamic>();
+      if (!matchesFingerprint(fp, name, packet)) continue;
+      if (parseAdv(d, packet) == null) continue;
+      final oldId = d.id;
+      final link = links.remove(oldId) ?? DeviceLink();
+      watched.remove(oldId);
+      d.id = id;
+      watched[id] = d;
+      links[id] = link;
+      onRemap?.call(oldId, d);
+      return d;
+    }
+    return null;
   }
 
   void _handleWatched(SavedDevice dev, AdvPacket packet) {
@@ -226,7 +270,10 @@ class BleService extends ChangeNotifier {
       link.error = null;
     }
     final reading = parseAdv(dev, packet);
-    if (reading != null) onReading?.call(dev.id, reading, fromGatt: false);
+    if (reading != null) {
+      link.lastKg = reading.kg;
+      onReading?.call(dev.id, reading, fromGatt: false);
+    }
   }
 
   Future<void> _ensureGatt(SavedDevice dev, DeviceLink link) async {

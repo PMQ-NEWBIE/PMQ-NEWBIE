@@ -7,15 +7,15 @@ double fromUnit(double v, bool lb) => lb ? v * lbToKg : v;
 
 String unitLabel(bool lb) => lb ? 'lb' : 'kg';
 
-String fmtW(double kg, bool lb, {int digits = 1}) =>
+String fmtW(double kg, bool lb, {int digits = 2}) =>
     toUnit(kg, lb).toStringAsFixed(digits);
 
-String fmtWU(double kg, bool lb, {int digits = 1}) =>
+String fmtWU(double kg, bool lb, {int digits = 2}) =>
     '${fmtW(kg, lb, digits: digits)} ${unitLabel(lb)}';
 
-String fmtDelta(double dKg, bool lb, {int digits = 1}) {
+String fmtDelta(double dKg, bool lb, {int digits = 2}) {
   final v = toUnit(dKg, lb);
-  if (v.abs() < 0.05) return '±0 ${unitLabel(lb)}';
+  if (v.abs() < 0.005) return '±0 ${unitLabel(lb)}';
   final s = v > 0 ? '+' : '−';
   return '$s${v.abs().toStringAsFixed(digits)} ${unitLabel(lb)}';
 }

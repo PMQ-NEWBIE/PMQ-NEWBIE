@@ -198,7 +198,7 @@ class _ChartPainter extends CustomPainter {
       final v = g.minY + (g.maxY - g.minY) * i / 3;
       final yy = g.y(v);
       canvas.drawLine(Offset(_Geo.padL, yy), Offset(size.width - _Geo.padR, yy), gp);
-      _label(canvas, fmtW(v, lb), Offset(_Geo.padL - 6, yy), text,
+      _label(canvas, fmtW(v, lb, digits: 1), Offset(_Geo.padL - 6, yy), text,
           align: TextAlign.right);
     }
 
