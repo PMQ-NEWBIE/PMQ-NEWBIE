@@ -313,12 +313,32 @@ class _HeroCard extends StatelessWidget {
         key: const ValueKey('live'),
         children: [
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            PulseDot(color: l.settled ? Colors.green : cs.primary, active: !l.settled),
-            Text(l.settled ? 'Đã chốt số' : 'Đang đo, đứng yên nhé...',
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 250),
+              child: l.settled
+                  ? const Icon(Icons.check_circle, color: Colors.green, key: ValueKey('ok'))
+                  : SizedBox(
+                      key: const ValueKey('hold'),
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        value: l.hold > 0 ? l.hold : null,
+                        strokeWidth: 3,
+                      ),
+                    ),
+            ),
+            const SizedBox(width: 8),
+            Text(l.settled ? 'Đã lưu vào lịch sử' : 'Đứng yên để app chốt số...',
                 style: t.textTheme.labelLarge),
           ]),
           const SizedBox(height: 6),
           _BigNumber(kg: l.kg, lb: st.unitLb, color: cs.onSurface),
+          if (!l.settled)
+            TextButton.icon(
+              onPressed: st.saveLiveNow,
+              icon: const Icon(Icons.save_outlined),
+              label: const Text('Lưu luôn số này'),
+            ),
         ],
       );
     } else if (latest == null) {

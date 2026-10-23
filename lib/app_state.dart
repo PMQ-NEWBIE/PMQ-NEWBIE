@@ -11,17 +11,42 @@ import 'protocols.dart';
 class LiveReading {
   final String deviceId;
   final double kg;
-  final bool settled;
+  final bool settled; // đã lưu vào lịch sử
+  final double hold; // 0..1, tiến độ giữ yên trước khi chốt
   final DateTime at;
-  LiveReading(this.deviceId, this.kg, this.settled, this.at);
+  LiveReading(this.deviceId, this.kg, this.settled, this.at, {this.hold = 0});
 }
 
-class _Stab {
-  double? last;
-  DateTime since = DateTime.now();
+/// Một phiên cân: từ lúc có người đứng lên tới lúc bước xuống / cân tắt.
+class _Session {
+  bool active = false;
+  DateTime start = DateTime.now();
+  DateTime lastPacket = DateTime.now();
+  double? lastKg;
+  DateTime holdStart = DateTime.now();
+  int holdPackets = 0;
+  double? bestKg;
+  Duration bestHold = Duration.zero;
+  double? committedKg;
+  int? impedance;
+  // Chống lưu trùng giữa các phiên.
   double? lastFinal;
   DateTime lastFinalAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  void reset() {
+    active = false;
+    lastKg = null;
+    holdPackets = 0;
+    bestKg = null;
+    bestHold = Duration.zero;
+    committedKg = null;
+    impedance = null;
+  }
 }
+
+const _holdNeed = Duration(milliseconds: 1500);
+const _silence = Duration(seconds: 4);
+const _tol = 0.1;
 
 const userPalette = [
   0xFF0F7A5A,
@@ -57,7 +82,6 @@ class AppState extends ChangeNotifier {
   Measurement? justSaved; // để Home chạy hiệu ứng kết quả
   int syncedThisSession = 0;
 
-  final Map<String, _Stab> _stabs = {};
 
   Future<void> load() async {
     try {
@@ -168,10 +192,29 @@ class AppState extends ChangeNotifier {
   }
 
   // ---------- Nhận số đo ----------
+  final Map<String, _Session> _sessions = {};
+  Timer? _watchdog;
+
+  void _startWatchdog() {
+    _watchdog ??= Timer.periodic(const Duration(seconds: 1), (_) {
+      final now = DateTime.now();
+      _sessions.forEach((id, s) {
+        if (s.active && now.difference(s.lastPacket) > _silence) {
+          _endSession(id, s); // cân tắt màn hình / ngừng phát: chốt số tốt nhất
+        }
+      });
+      final l = live;
+      if (l != null && now.difference(l.at) > const Duration(seconds: 8)) {
+        live = null;
+        notifyListeners();
+      }
+    });
+  }
+
   void _onReading(String deviceId, Reading r, {required bool fromGatt}) {
     final now = DateTime.now();
     if (fromGatt) {
-      live = LiveReading(deviceId, r.kg, true, now);
+      live = LiveReading(deviceId, r.kg, true, now, hold: 1);
       final ext = r.at != null
           ? '$deviceId@${r.at!.millisecondsSinceEpoch}@${(r.kg * 100).round()}'
           : null;
@@ -179,36 +222,92 @@ class AppState extends ChangeNotifier {
       return;
     }
 
-    final s = _stabs.putIfAbsent(deviceId, () => _Stab());
+    _startWatchdog();
+    final s = _sessions.putIfAbsent(deviceId, () => _Session());
+    s.lastPacket = now;
+
     if (r.removed || r.kg < 2) {
-      s.last = null;
-      if (live?.deviceId == deviceId) live = null;
-      notifyListeners();
+      if (s.active) _endSession(deviceId, s);
       return;
     }
+    if (r.kg < 5) return;
 
-    bool settled;
-    if (r.stable != null) {
-      settled = r.stable!;
-    } else if (s.last == null || (r.kg - s.last!).abs() > 0.05) {
-      s.last = r.kg;
-      s.since = now;
-      settled = false;
-    } else {
-      settled = now.difference(s.since) >= const Duration(milliseconds: 1800);
+    if (!s.active) {
+      s.reset();
+      s.active = true;
+      s.start = now;
     }
-    live = LiveReading(deviceId, r.kg, settled, now);
+    if (s.lastKg == null || (r.kg - s.lastKg!).abs() > _tol) {
+      s.lastKg = r.kg;
+      s.holdStart = now;
+      s.holdPackets = 1;
+    } else {
+      s.holdPackets++;
+    }
+    if (r.impedance != null) s.impedance = r.impedance;
+    final held = now.difference(s.holdStart);
+    if (s.bestKg == null || held >= s.bestHold) {
+      s.bestHold = held;
+      s.bestKg = r.kg;
+    }
+
+    final saved =
+        s.committedKg != null && (r.kg - s.committedKg!).abs() <= 0.5;
+    final ready =
+        r.stable == true || (held >= _holdNeed && s.holdPackets >= 2);
+    final progress = saved || r.stable == true
+        ? 1.0
+        : (held.inMilliseconds / _holdNeed.inMilliseconds).clamp(0.0, 1.0);
+    live = LiveReading(deviceId, r.kg, saved, now, hold: progress);
     notifyListeners();
 
-    if (!settled || r.kg < 5) return;
+    if (ready && !saved) _commit(deviceId, s, r.kg);
+  }
+
+  void _endSession(String id, _Session s) {
+    if (s.active && s.committedKg == null) {
+      // Chưa chốt được trong lúc đứng: lấy số giữ lâu nhất, hoặc số cuối.
+      if (s.bestKg != null && s.bestHold >= const Duration(milliseconds: 300)) {
+        _commit(id, s, s.bestKg!);
+      } else if (s.lastKg != null &&
+          s.lastPacket.difference(s.start) >= const Duration(seconds: 2)) {
+        _commit(id, s, s.lastKg!);
+      }
+    }
+    s.reset();
+    if (live?.deviceId == id) live = null;
+    notifyListeners();
+  }
+
+  void _commit(String id, _Session s, double kg) {
+    final now = DateTime.now();
+    s.committedKg = kg;
     if (s.lastFinal != null &&
-        (r.kg - s.lastFinal!).abs() < 0.3 &&
+        (kg - s.lastFinal!).abs() < 0.3 &&
         now.difference(s.lastFinalAt) < const Duration(seconds: 90)) {
       return;
     }
-    s.lastFinal = r.kg;
+    // Cân Xiaomi hay phát lại số cũ khi vừa thức: bỏ nếu y hệt số vừa lưu.
+    final dup = measurements.any((m) =>
+        m.deviceId == id &&
+        now.difference(m.at) < const Duration(minutes: 10) &&
+        (m.weightKg - kg).abs() < 0.01);
+    if (dup) return;
+    s.lastFinal = kg;
     s.lastFinalAt = now;
-    _finalize(deviceId, r, 'adv', null);
+    if (live?.deviceId == id) {
+      live = LiveReading(id, kg, true, now, hold: 1);
+    }
+    _finalize(id, Reading(kg, impedance: s.impedance), 'adv', null);
+  }
+
+  /// Nút "Lưu số này" trên màn hình khi tự chốt không ăn.
+  void saveLiveNow() {
+    final l = live;
+    if (l == null) return;
+    final s = _sessions.putIfAbsent(l.deviceId, () => _Session());
+    s.lastFinal = null;
+    _commit(l.deviceId, s, l.kg);
   }
 
   Future<void> _finalize(

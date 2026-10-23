@@ -57,7 +57,7 @@ jobs:
         run: |
           set -o pipefail
           flutter pub get 2>&1 | tee build.log
-          flutter build apk --release 2>&1 | tee -a build.log
+          flutter build apk --release --build-name 1.0.${{ github.run_number }} --build-number ${{ github.run_number }} 2>&1 | tee -a build.log
 
       - name: Đẩy log lỗi lên nhánh ci-logs
         if: failure()
