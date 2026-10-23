@@ -38,7 +38,6 @@ ThemeData buildTheme(Brightness b) {
     scaffoldBackgroundColor: cs.surface,
     pageTransitionsTheme: const PageTransitionsTheme(builders: {
       TargetPlatform.android: ZoomPageTransitionsBuilder(),
-      TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
     }),
     cardTheme: CardThemeData(
       elevation: 0,
