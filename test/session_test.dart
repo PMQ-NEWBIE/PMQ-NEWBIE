@@ -55,11 +55,32 @@ void main() {
     expect(step.commit?.method, CommitMethod.sessionEnd);
   });
 
-  test('không lưu trùng khi cân phát lại cùng số trong 90 giây', () {
-    final s = WeighSession();
+  test('cân phát lại số cũ (không về 0, không tăng dần) thì không lưu trùng', () {
+    final s = WeighSession(silence: const Duration(seconds: 4));
     expect(s.feed(Reading(80.0, stable: true), at(0)).commit, isNotNull);
-    s.feed(Reading(0.5), at(2000)); // bước xuống
-    expect(s.feed(Reading(80.1, stable: true), at(10000)).commit, isNull);
+    expect(s.checkSilence(at(6000)), isNull); // cân tắt, phiên kết thúc
+    expect(s.feed(Reading(80.0, stable: true), at(10000)).commit, isNull);
+  });
+
+  test('bước xuống rồi cân lại đúng số cũ vẫn được lưu', () {
+    final s = WeighSession();
+    expect(s.feed(Reading(76.95, stable: true), at(0)).commit, isNotNull);
+    s.feed(Reading(0.0), at(2000)); // cân về 0
+    expect(s.feed(Reading(76.95, stable: true), at(10000)).commit, isNotNull);
+  });
+
+  test('cân lại có đoạn số tăng dần vẫn được lưu dù cân không về 0', () {
+    final s = WeighSession(silence: const Duration(seconds: 4));
+    for (var i = 0; i <= 6; i++) {
+      s.feed(Reading(76.95), at(i * 300));
+    }
+    s.checkSilence(at(8000));
+    s.feed(Reading(40.0), at(9000));
+    SessionCommit? c;
+    for (var i = 0; i <= 6; i++) {
+      c ??= s.feed(Reading(76.95), at(9300 + i * 300)).commit;
+    }
+    expect(c, isNotNull);
   });
 
   test('bỏ qua số nhỏ hơn 5 kg', () {

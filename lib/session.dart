@@ -66,6 +66,8 @@ class WeighSession {
 
   double? _lastFinal;
   DateTime _lastFinalAt = DateTime.fromMillisecondsSinceEpoch(0);
+  /// Đã thấy cân về 0 / bước xuống kể từ lần chốt trước: lần sau là cân mới thật.
+  bool _sawReset = true;
 
   void _reset() {
     active = false;
@@ -85,6 +87,7 @@ class WeighSession {
   SessionStep feed(Reading r, DateTime now) {
     _lastPacket = now;
     if (r.removed || r.kg < 2) {
+      _sawReset = true;
       final c = active ? _end(now) : null;
       return SessionStep(ended: true, commit: c);
     }
@@ -165,13 +168,19 @@ class WeighSession {
   SessionCommit? _commit(
       double kg, CommitMethod method, DateTime now, List<int>? raw) {
     _committedKg = kg;
-    if (_lastFinal != null &&
+    // Chỉ coi là trùng khi cân phát lại số cũ: chưa về 0 kể từ lần chốt trước
+    // và cũng không có đoạn số tăng dần (người bước lên lại).
+    final ramped = _min != null && _min! < kg - 1.0;
+    if (!_sawReset &&
+        !ramped &&
+        _lastFinal != null &&
         (kg - _lastFinal!).abs() < 0.3 &&
         now.difference(_lastFinalAt) < const Duration(seconds: 90)) {
       return null;
     }
     _lastFinal = kg;
     _lastFinalAt = now;
+    _sawReset = false;
     return SessionCommit(
       kg,
       method,

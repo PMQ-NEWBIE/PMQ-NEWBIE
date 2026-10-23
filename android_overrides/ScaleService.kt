@@ -122,6 +122,7 @@ class ScaleService : Service() {
         var bestRaw: ByteArray? = null
         var lastFinal: Double? = null
         var lastFinalAt = 0L
+        var sawReset = true // đã thấy cân về 0 kể từ lần chốt trước
 
         fun reset() {
             active = false; lastKg = null; holdPackets = 0
@@ -353,6 +354,7 @@ class ScaleService : Service() {
         val s = sessions.getOrPut(d.id) { Sess() }
         s.lastPacket = now
         if (r.removed || r.kg < 2) {
+            s.sawReset = true
             if (s.active) endSession(d.id, s)
             return
         }
@@ -407,9 +409,12 @@ class ScaleService : Service() {
         val now = System.currentTimeMillis()
         s.committed = kg
         val lf = s.lastFinal
-        if (lf != null && abs(kg - lf) < 0.3 && now - s.lastFinalAt < 90_000) return
+        val ramped = (s.minKg ?: kg) < kg - 1.0
+        // Chỉ bỏ khi là cân phát lại số cũ: chưa về 0 và không có đoạn tăng dần.
+        if (!s.sawReset && !ramped && lf != null && abs(kg - lf) < 0.3 && now - s.lastFinalAt < 90_000) return
         s.lastFinal = kg
         s.lastFinalAt = now
+        s.sawReset = false
         val rounded = Math.round(kg * 100) / 100.0
         val o = JSONObject()
         o.put("deviceId", d.id)

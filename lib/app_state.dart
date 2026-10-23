@@ -310,13 +310,17 @@ class AppState extends ChangeNotifier {
   }
 
   void _commit(String deviceId, SessionCommit c) {
-    // Cân Xiaomi hay phát lại số cũ khi vừa thức: bỏ nếu y hệt số vừa lưu.
+    // Cân Xiaomi hay phát lại đúng số cũ (kèm cờ ổn định) khi vừa thức.
+    // Chỉ bỏ khi phiên không có đoạn số tăng dần, tức không phải lần cân mới.
     final now = DateTime.now();
-    final dup = measurements.any((m) =>
-        m.deviceId == deviceId &&
-        now.difference(m.at) < const Duration(minutes: 10) &&
-        (m.weightKg - c.kg).abs() < 0.01);
-    if (dup) return;
+    final replay = c.method == CommitMethod.scaleStable &&
+        c.samples <= 3 &&
+        (c.minKg ?? c.kg) >= c.kg - 1.0 &&
+        measurements.any((m) =>
+            m.deviceId == deviceId &&
+            now.difference(m.at) < const Duration(minutes: 10) &&
+            (m.weightKg - c.kg).abs() < 0.01);
+    if (replay) return;
     if (live?.deviceId == deviceId) {
       live = LiveReading(deviceId, c.kg, true, now, hold: 1);
     }

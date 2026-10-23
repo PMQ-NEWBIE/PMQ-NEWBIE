@@ -424,12 +424,19 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
                           labelText: 'Số đang hiện trên cân', suffixText: unitLabel(st.unitLb)),
                     ),
                     const SizedBox(height: 8),
-                    if (cands.isEmpty)
+                    if (knownKg == null)
+                      const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Text(
+                            'Nhập số đang hiện trên cân trước. Cùng một gói tin có thể đọc ra nhiều số khác nhau, app cần số thật để chỉ đúng dòng.'),
+                      )
+                    else if (cands.isEmpty)
                       const Padding(
                         padding: EdgeInsets.all(12),
                         child: Text('Chưa có byte nào ra giá trị hợp lý (2 đến 250 kg).'),
                       ),
-                    for (final c in cands)
+                    if (knownKg != null)
+                    for (final c in cands.where((c) => c.match).followedBy(cands.where((c) => !c.match).take(5)))
                       Card(
                         margin: const EdgeInsets.only(bottom: 6),
                         color: c.match ? t.colorScheme.primaryContainer : null,
