@@ -37,6 +37,8 @@ jobs:
           mkdir -p "$K"
           cp android_overrides/MainActivity.kt "$K/MainActivity.kt"
           cp android_overrides/Reminder.kt "$K/Reminder.kt"
+          cat android_overrides/root_build_append.gradle.kts >> android/build.gradle.kts
+          cat android/build.gradle.kts
 
       - name: Khoá ký cố định (để cài đè không mất dữ liệu)
         env:
