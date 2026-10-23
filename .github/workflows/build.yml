@@ -47,12 +47,26 @@ jobs:
             echo "$KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
             echo "Dùng khoá ký từ secret"
           else
-            echo "::warning::Chưa có secret DEBUG_KEYSTORE_B64, mỗi bản build sẽ ký khác nhau"
+            cp android_overrides/debug.keystore ~/.android/debug.keystore
+            echo "Dùng khoá ký trong repo"
           fi
 
-      - run: flutter pub get
+      - name: Build APK
+        run: |
+          set -o pipefail
+          flutter pub get 2>&1 | tee build.log
+          flutter build apk --release 2>&1 | tee -a build.log
 
-      - run: flutter build apk --release
+      - name: Đẩy log lỗi lên nhánh ci-logs
+        if: failure()
+        run: |
+          mkdir -p /tmp/logs && cp build.log /tmp/logs/ 2>/dev/null || echo "no log" > /tmp/logs/build.log
+          cd /tmp/logs
+          git init -q -b ci-logs
+          git config user.name ci && git config user.email ci@local
+          echo "run ${{ github.run_number }} sha ${{ github.sha }}" > info.txt
+          git add -A && git commit -q -m "log run ${{ github.run_number }}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" ci-logs
 
       - name: Đăng bản phát hành
         env:
