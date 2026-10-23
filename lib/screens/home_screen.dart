@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import '../app_state.dart';
 import '../ble_service.dart';
 import '../fmt.dart';
 import '../main.dart';
-import '../metrics.dart';
 import '../models.dart';
 import '../widgets/common.dart';
 import '../widgets/weight_chart.dart';
@@ -39,6 +39,7 @@ class _HomeScreenState extends State<HomeScreen>
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         _pop.forward(from: 0);
+        HapticFeedback.mediumImpact();
         final u = st.userById(m.userId);
         toast(
             context,
@@ -73,9 +74,13 @@ class _HomeScreenState extends State<HomeScreen>
                           if (st.fatalError != null)
                             ErrorCard(
                                 title: 'Lỗi dữ liệu', message: st.fatalError!),
+                          _ProfileHint(st: st),
                           _ConnectionCard(st: st),
                           const SizedBox(height: 12),
-                          _HeroCard(st: st, pop: _pop),
+                          ValueListenableBuilder<LiveReading?>(
+                            valueListenable: st.liveNotifier,
+                            builder: (context, _, __) => _HeroCard(st: st, pop: _pop),
+                          ),
                           for (final m in st.pending) _PendingCard(st: st, m: m),
                           const SizedBox(height: 12),
                           _Stats(st: st),
@@ -108,7 +113,8 @@ class _Header extends StatelessWidget {
         Text('Cân Lỏ',
             style: t.textTheme.labelLarge?.copyWith(
                 color: t.colorScheme.primary, fontWeight: FontWeight.w700)),
-        Text('Chào ${u?.name ?? ''}', style: t.textTheme.headlineSmall),
+        Text(u == null || u.name == 'Tôi' ? 'Chào bạn' : 'Chào ${u.name}',
+            style: t.textTheme.headlineSmall),
         if (st.users.length > 1) ...[
           const SizedBox(height: 8),
           SingleChildScrollView(
@@ -134,6 +140,61 @@ class _Header extends StatelessWidget {
   }
 }
 
+/// Gợi ý điền hồ sơ: chiều cao mở BMI, giới tính + năm sinh mở năng lượng nghỉ.
+class _ProfileHint extends StatelessWidget {
+  final AppState st;
+  const _ProfileHint({required this.st});
+
+  @override
+  Widget build(BuildContext context) {
+    final u = st.activeUser;
+    if (u == null) return const SizedBox.shrink();
+    final missing = <String>[
+      if (u.name == 'Tôi') 'tên',
+      if (u.heightCm == null) 'chiều cao',
+      if (u.sex == null) 'giới tính',
+      if (u.birthYear == null) 'năm sinh',
+    ];
+    if (missing.isEmpty || st.dismissedProfileHint) return const SizedBox.shrink();
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Card(
+        color: cs.primaryContainer,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 4, 8),
+          child: Row(
+            children: [
+              Icon(Icons.badge_outlined, color: cs.onPrimaryContainer),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Hoàn thiện hồ sơ',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w600, color: cs.onPrimaryContainer)),
+                    Text('Thêm ${missing.join(', ')} để app tính BMI và năng lượng nghỉ.',
+                        style: TextStyle(fontSize: 13, color: cs.onPrimaryContainer)),
+                    Row(children: [
+                      TextButton(
+                          onPressed: () => showUserEditor(context, u),
+                          child: const Text('Điền ngay')),
+                      TextButton(
+                          onPressed: st.dismissProfileHint,
+                          child: const Text('Để sau')),
+                    ]),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ConnectionCard extends StatelessWidget {
   final AppState st;
   const _ConnectionCard({required this.st});
@@ -144,7 +205,7 @@ class _ConnectionCard extends StatelessWidget {
       listenable: st.ble,
       builder: (context, _) {
         final ble = st.ble;
-        final shell = ShellNav.of(context);
+        final shell = ShellState.of(context);
         if (!ble.supported) {
           return const ErrorCard(
               title: 'Máy không hỗ trợ Bluetooth LE',
@@ -204,11 +265,6 @@ class _ConnectionCard extends StatelessWidget {
       },
     );
   }
-}
-
-/// Lấy ShellState để chuyển tab.
-class ShellNav {
-  static ShellState? of(BuildContext context) => ShellState.of(context);
 }
 
 class DeviceStatusRow extends StatelessWidget {
@@ -316,7 +372,7 @@ class _HeroCard extends StatelessWidget {
 
     Widget content;
     if (isLive) {
-      final l = live!;
+      final l = live;
       content = Column(
         key: const ValueKey('live'),
         children: [
@@ -678,8 +734,7 @@ class _MiniChart extends StatelessWidget {
     final u = st.activeUser;
     if (u == null) return const SizedBox.shrink();
     final from = DateTime.now().subtract(const Duration(days: 30));
-    final all = st.historyOf(u.id!);
-    final data = all.where((m) => m.at.isAfter(from)).toList();
+    final data = st.historyOf(u.id!).where((m) => m.at.isAfter(from)).toList();
     if (data.length < 2) return const SizedBox.shrink();
     return Card(
       child: Padding(
@@ -694,7 +749,7 @@ class _MiniChart extends StatelessWidget {
             ),
             WeightChart(
                 data: data,
-                average: [for (final m in data) movingAverage(all, m.at)],
+                average: [for (final m in data) st.average7(m)],
                 lb: st.unitLb,
                 goalKg: u.goalKg,
                 color: Color(u.color),
@@ -739,54 +794,74 @@ Future<void> showManualEntry(BuildContext context) async {
   final u = st.activeUser;
   if (u == null) return;
   final ctrl = TextEditingController();
+  final note = TextEditingController();
   var at = DateTime.now();
-  final ok = await showDialog<bool>(
+
+  double? parse() {
+    final v = double.tryParse(ctrl.text.trim().replaceAll(',', '.'));
+    if (v == null) return null;
+    final kg = fromUnit(v, st.unitLb);
+    return (kg >= 2 && kg <= 400) ? kg : null;
+  }
+
+  final kg = await showDialog<double>(
     context: context,
     builder: (c) => StatefulBuilder(
-      builder: (c, setS) => AlertDialog(
-        title: Text('Nhập tay cho ${u.name}'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: ctrl,
-              autofocus: true,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: InputDecoration(
-                  labelText: 'Cân nặng', suffixText: unitLabel(st.unitLb)),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              icon: const Icon(Icons.schedule),
-              label: Text(fmtDate(at)),
-              onPressed: () async {
-                final d = await showDatePicker(
-                    context: c,
-                    initialDate: at,
-                    firstDate: DateTime(2015),
-                    lastDate: DateTime.now());
-                if (d == null || !c.mounted) return;
-                final tm = await showTimePicker(
-                    context: c, initialTime: TimeOfDay.fromDateTime(at));
-                setS(() => at = DateTime(d.year, d.month, d.day,
-                    tm?.hour ?? at.hour, tm?.minute ?? at.minute));
-              },
+      builder: (c, setS) {
+        final value = parse();
+        final showError = ctrl.text.trim().isNotEmpty && value == null;
+        return AlertDialog(
+          title: Text('Nhập tay cho ${u.name}'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: ctrl,
+                autofocus: true,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                onChanged: (_) => setS(() {}),
+                decoration: InputDecoration(
+                  labelText: 'Cân nặng',
+                  suffixText: unitLabel(st.unitLb),
+                  errorText: showError ? 'Nhập số kiểu 68.4' : null,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: note,
+                decoration: const InputDecoration(labelText: 'Ghi chú (không bắt buộc)'),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.schedule),
+                label: Text(fmtDate(at)),
+                onPressed: () async {
+                  final d = await showDatePicker(
+                      context: c,
+                      initialDate: at,
+                      firstDate: DateTime(2015),
+                      lastDate: DateTime.now());
+                  if (d == null || !c.mounted) return;
+                  final tm = await showTimePicker(
+                      context: c, initialTime: TimeOfDay.fromDateTime(at));
+                  setS(() => at = DateTime(d.year, d.month, d.day,
+                      tm?.hour ?? at.hour, tm?.minute ?? at.minute));
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(c), child: const Text('Huỷ')),
+            FilledButton(
+              onPressed: value == null ? null : () => Navigator.pop(c, value),
+              child: const Text('Lưu'),
             ),
           ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Huỷ')),
-          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Lưu')),
-        ],
-      ),
+        );
+      },
     ),
   );
-  if (ok != true) return;
-  final v = double.tryParse(ctrl.text.replaceAll(',', '.'));
-  if (!context.mounted) return;
-  if (v == null || v <= 0 || fromUnit(v, st.unitLb) > 400) {
-    toast(context, 'Số cân không hợp lệ, nhập lại kiểu 68.4');
-    return;
-  }
-  await st.addManual(fromUnit(v, st.unitLb), at, u.id!);
+  if (kg == null) return;
+  await st.addManual(kg, at, u.id!,
+      note: note.text.trim().isEmpty ? null : note.text.trim());
 }

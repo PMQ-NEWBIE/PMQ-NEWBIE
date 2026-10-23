@@ -57,7 +57,13 @@ class _DevicesScreenState extends State<DevicesScreen> {
               .where((d) =>
                   DateTime.now().difference(d.lastSeen) < const Duration(seconds: 30))
               .toList()
-            ..sort((a, b) => b.rssi.compareTo(a.rssi));
+            // Thiết bị có vẻ là cân lên đầu, rồi tới sóng mạnh nhất.
+            ..sort((a, b) {
+              final sa = detectProto(a.packet) != null ? 1 : 0;
+              final sb = detectProto(b.packet) != null ? 1 : 0;
+              if (sa != sb) return sb - sa;
+              return b.rssi.compareTo(a.rssi);
+            });
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),

@@ -45,13 +45,19 @@ class AppState extends ChangeNotifier {
   ThemeMode themeMode = ThemeMode.system;
   bool autoAssign = true;
   bool backgroundOn = false;
+  bool dismissedProfileHint = false;
 
   bool reminderOn = false;
   int reminderHour = 7;
   int reminderMinute = 0;
   int reminderDays = 0x7F; // bit0 = Thứ 2 ... bit6 = Chủ nhật
 
-  LiveReading? live;
+  /// Số đang đo. Tách riêng để mỗi gói Bluetooth chỉ vẽ lại thẻ số cân,
+  /// không rebuild cả app.
+  final ValueNotifier<LiveReading?> liveNotifier = ValueNotifier(null);
+  LiveReading? get live => liveNotifier.value;
+  set live(LiveReading? v) => liveNotifier.value = v;
+
   Measurement? justSaved; // để Home chạy hiệu ứng kết quả
   int syncedThisSession = 0;
   int importedFromBackground = 0;
@@ -78,6 +84,7 @@ class AppState extends ChangeNotifier {
           orElse: () => ThemeMode.system);
       autoAssign = s['auto_assign'] != '0';
       backgroundOn = s['bg_on'] == '1';
+      dismissedProfileHint = s['hint_profile'] == '0';
       reminderOn = s['rem_on'] == '1';
       reminderHour = int.tryParse(s['rem_h'] ?? '') ?? 7;
       reminderMinute = int.tryParse(s['rem_m'] ?? '') ?? 0;
@@ -257,7 +264,6 @@ class AppState extends ChangeNotifier {
       final l = live;
       if (l != null && now.difference(l.at) > const Duration(seconds: 8)) {
         live = null;
-        notifyListeners();
       }
     });
   }
@@ -292,7 +298,6 @@ class AppState extends ChangeNotifier {
       live = LiveReading(deviceId, step.kg!, step.saved, now, hold: step.hold);
     }
     if (step.commit != null) _commit(deviceId, step.commit!);
-    notifyListeners();
   }
 
   void _commit(String deviceId, SessionCommit c) {
@@ -329,7 +334,6 @@ class AppState extends ChangeNotifier {
     final c = s?.forceCommit(DateTime.now()) ??
         SessionCommit(l.kg, CommitMethod.liveButton);
     _commit(l.deviceId, c);
-    notifyListeners();
   }
 
   Future<void> _save(Measurement m) async {
@@ -417,24 +421,27 @@ class AppState extends ChangeNotifier {
   }
 
   // ---------- Thống kê ----------
-  List<Measurement> historyOf(int userId) =>
-      measurements.where((m) => m.userId == userId).toList();
+  _Derived? _derived;
+
+  @override
+  void notifyListeners() {
+    _derived = null; // dữ liệu có thể đã đổi, tính lại khi cần
+    super.notifyListeners();
+  }
+
+  _Derived get _d => _derived ??= _Derived(measurements);
+
+  List<Measurement> historyOf(int userId) => _d.byUser[userId] ?? const [];
 
   Measurement? latestFor(int userId) {
-    for (var i = measurements.length - 1; i >= 0; i--) {
-      if (measurements[i].userId == userId) return measurements[i];
-    }
-    return null;
+    final h = _d.byUser[userId];
+    return (h == null || h.isEmpty) ? null : h.last;
   }
 
-  Measurement? previousOf(Measurement m) {
-    Measurement? prev;
-    for (final x in measurements) {
-      if (identical(x, m)) break;
-      if (x.userId == m.userId) prev = x;
-    }
-    return prev;
-  }
+  Measurement? previousOf(Measurement m) => _d.prev[m];
+
+  /// Trung bình 7 ngày tính tới lần cân [m] (cùng người).
+  double? average7(Measurement m) => _d.avg7[m];
 
   /// Độ dốc hồi quy tuyến tính 30 ngày gần nhất, đơn vị kg/tuần.
   double? trendPerWeek(int userId) {
@@ -486,6 +493,12 @@ class AppState extends ChangeNotifier {
       );
 
   // ---------- Cài đặt ----------
+  Future<void> dismissProfileHint() async {
+    dismissedProfileHint = true;
+    await db.setSetting('hint_profile', '0');
+    notifyListeners();
+  }
+
   Future<void> setUnitLb(bool v) async {
     unitLb = v;
     await db.setSetting('unit', v ? 'lb' : 'kg');
@@ -541,8 +554,7 @@ class AppState extends ChangeNotifier {
       if (userId != null && m.userId != userId) continue;
       final u = userById(m.userId);
       final prev = previousOf(m);
-      final hist = u == null ? <Measurement>[] : historyOf(u.id!);
-      final avg = movingAverage(hist, m.at);
+      final avg = average7(m);
       final bmiV = m.bmi;
       final bmr = u == null ? null : bmrFor(u, m);
       b.writeln([
@@ -571,5 +583,34 @@ class AppState extends ChangeNotifier {
       ].join(','));
     }
     return b.toString();
+  }
+}
+
+/// Thống kê dẫn xuất, tính một lượt cho toàn bộ lịch sử.
+class _Derived {
+  final Map<int?, List<Measurement>> byUser = {};
+  final Map<Measurement, Measurement?> prev = Map.identity();
+  final Map<Measurement, double?> avg7 = Map.identity();
+
+  _Derived(List<Measurement> all) {
+    for (final m in all) {
+      (byUser[m.userId] ??= []).add(m);
+    }
+    for (final list in byUser.values) {
+      // list đã theo thời gian tăng dần vì measurements luôn được sort.
+      var lo = 0;
+      var sum = 0.0;
+      for (var i = 0; i < list.length; i++) {
+        final m = list[i];
+        prev[m] = i == 0 ? null : list[i - 1];
+        sum += m.weightKg;
+        final from = m.at.subtract(const Duration(days: 7));
+        while (lo < i && !list[lo].at.isAfter(from)) {
+          sum -= list[lo].weightKg;
+          lo++;
+        }
+        avg7[m] = sum / (i - lo + 1);
+      }
+    }
   }
 }

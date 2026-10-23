@@ -118,12 +118,12 @@ class ShellState extends State<Shell> with WidgetsBindingObserver {
   }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState s) {
+  void didChangeAppLifecycleState(AppLifecycleState state) {
     final st = AppScope.read(context);
     if (st.loading) return;
-    if (s == AppLifecycleState.paused) {
+    if (state == AppLifecycleState.paused) {
       st.onPaused();
-    } else if (s == AppLifecycleState.resumed) {
+    } else if (state == AppLifecycleState.resumed) {
       st.onResumed();
     }
   }
@@ -190,7 +190,7 @@ class ShellState extends State<Shell> with WidgetsBindingObserver {
             : NavigationBar(
                 selectedIndex: index,
                 onDestinationSelected: go,
-                labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
+                labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
                 destinations: [
                   for (final d in _dests)
                     NavigationDestination(

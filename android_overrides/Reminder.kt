@@ -78,7 +78,7 @@ object Reminder {
             Notification.Builder(ctx)
         }
         val n = builder
-            .setSmallIcon(ctx.applicationInfo.icon)
+            .setSmallIcon(R.drawable.ic_stat_scale)
             .setContentTitle("Tới giờ cân rồi")
             .setContentText("Bước lên cân rồi mở Cân Lỏ để lưu số hôm nay.")
             .setContentIntent(content)

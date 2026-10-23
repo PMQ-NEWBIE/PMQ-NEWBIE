@@ -31,14 +31,13 @@ jobs:
         run: |
           flutter --version
           flutter create --platforms=android --org vn.wuan --project-name can_lo .
-          rm -rf test
+          rm -f test/widget_test.dart
           cp android_overrides/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
           K=android/app/src/main/kotlin/vn/wuan/can_lo
           mkdir -p "$K"
           rm -f "$K"/*.kt
           cp android_overrides/*.kt "$K/"
-          cat android_overrides/root_build_append.gradle.kts >> android/build.gradle.kts
-          cat android/build.gradle.kts
+          cp -r android_overrides/res/. android/app/src/main/res/
 
       - name: Khoá ký cố định (để cài đè không mất dữ liệu)
         env:
@@ -58,7 +57,8 @@ jobs:
           set -o pipefail
           flutter pub get 2>&1 | tee build.log
           flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee -a build.log
-          flutter build apk --release --build-name 1.0.${{ github.run_number }} --build-number ${{ github.run_number }} 2>&1 | tee -a build.log
+          flutter test 2>&1 | tee -a build.log
+          flutter build apk --release --split-per-abi --build-name 1.0.${{ github.run_number }} --build-number ${{ github.run_number }} 2>&1 | tee -a build.log
 
       - name: Đẩy log lỗi lên nhánh ci-logs
         if: failure()
@@ -75,9 +75,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp build/app/outputs/flutter-apk/app-release.apk CanLo.apk
+          O=build/app/outputs/flutter-apk
+          cp $O/app-arm64-v8a-release.apk CanLo.apk
+          cp $O/app-armeabi-v7a-release.apk CanLo-armv7.apk
+          cp $O/app-x86_64-release.apk CanLo-x86_64.apk
           TAG="v1.0.${{ github.run_number }}"
-          gh release create "$TAG" CanLo.apk \
+          FV=$(flutter --version | head -1)
+          gh release create "$TAG" CanLo.apk CanLo-armv7.apk CanLo-x86_64.apk \
             --title "Cân Lỏ $TAG" \
-            --notes "Tải CanLo.apk về điện thoại Android rồi mở để cài. Lần đầu Android sẽ hỏi cho phép cài app ngoài CH Play." \
+            --notes "Tải **CanLo.apk** (đa số điện thoại đời mới). Máy rất cũ 32-bit thì lấy CanLo-armv7.apk. Build bằng $FV." \
             --latest

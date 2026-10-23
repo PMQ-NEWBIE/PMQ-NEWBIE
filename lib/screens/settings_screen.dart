@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../fmt.dart';
 import '../app_state.dart';
 import '../main.dart';
+import '../models.dart';
 import '../native.dart';
 import '../widgets/common.dart';
 import 'history_screen.dart';

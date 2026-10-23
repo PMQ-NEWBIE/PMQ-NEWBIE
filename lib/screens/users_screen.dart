@@ -241,7 +241,7 @@ Future<void> showUserEditor(BuildContext context, UserProfile? user) async {
     name: n,
     heightCm: h != null && h > 50 && h < 260 ? h : null,
     goalKg: (user?.goalKg != null && goal.text.trim() == fmtW(user!.goalKg!, lb))
-        ? user!.goalKg
+        ? user.goalKg
         : (g != null && g > 0 ? fromUnit(g, lb) : null),
     goalStartKg: user?.goalStartKg,
     color: color,

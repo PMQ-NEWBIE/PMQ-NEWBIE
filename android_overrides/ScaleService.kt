@@ -425,7 +425,7 @@ class ScaleService : Service() {
         if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, ch) else Notification.Builder(this)
 
     private fun ongoing(): Notification = builder(CH_ONGOING)
-        .setSmallIcon(applicationInfo.icon)
+        .setSmallIcon(R.drawable.ic_stat_scale)
         .setContentTitle("Cân Lỏ đang chờ cân")
         .setContentText("Bước lên cân là số tự được ghi lại")
         .setContentIntent(openApp(5201))
@@ -437,7 +437,7 @@ class ScaleService : Service() {
         val txt = if (lb) String.format(Locale.US, "%.1f lb", kg / 0.45359237)
         else String.format(Locale.US, "%.1f kg", kg)
         val n = builder(CH_RESULT)
-            .setSmallIcon(applicationInfo.icon)
+            .setSmallIcon(R.drawable.ic_stat_scale)
             .setContentTitle("Đã ghi $txt")
             .setContentText("Từ ${d.name}. Mở app để xem biểu đồ.")
             .setContentIntent(openApp(5202))

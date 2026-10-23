@@ -131,7 +131,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           child: Center(child: Text('Không có lần cân nào trong khoảng này')))
                       : WeightChart(
                           data: data,
-                          average: [for (final m in data) movingAverage(all, m.at)],
+                          average: [for (final m in data) st.average7(m)],
                           lb: st.unitLb,
                           goalKg: u.goalKg,
                           color: Color(u.color),

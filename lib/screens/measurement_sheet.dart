@@ -87,8 +87,7 @@ class _DetailSheetState extends State<_DetailSheet> {
     final lb = st.unitLb;
     final u = st.userById(m.userId);
     final prev = st.previousOf(m);
-    final hist = u == null ? <Measurement>[] : st.historyOf(u.id!);
-    final avg7 = movingAverage(hist, m.at);
+    final avg7 = st.average7(m);
     final bmiV = m.bmi;
     final bmr = u == null ? null : st.bmrFor(u, m);
 
