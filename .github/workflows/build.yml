@@ -1,0 +1,66 @@
+name: build-apk
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - 'README.md'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Tạo khung Android và chép code native
+        run: |
+          flutter --version
+          flutter create --platforms=android --org vn.wuan --project-name can_lo .
+          rm -rf test
+          cp android_overrides/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          K=android/app/src/main/kotlin/vn/wuan/can_lo
+          mkdir -p "$K"
+          cp android_overrides/MainActivity.kt "$K/MainActivity.kt"
+          cp android_overrides/Reminder.kt "$K/Reminder.kt"
+
+      - name: Khoá ký cố định (để cài đè không mất dữ liệu)
+        env:
+          KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+        run: |
+          mkdir -p ~/.android
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+            echo "Dùng khoá ký từ secret"
+          else
+            echo "::warning::Chưa có secret DEBUG_KEYSTORE_B64, mỗi bản build sẽ ký khác nhau"
+          fi
+
+      - run: flutter pub get
+
+      - run: flutter build apk --release
+
+      - name: Đăng bản phát hành
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp build/app/outputs/flutter-apk/app-release.apk CanLo.apk
+          TAG="v1.0.${{ github.run_number }}"
+          gh release create "$TAG" CanLo.apk \
+            --title "Cân Lỏ $TAG" \
+            --notes "Tải CanLo.apk về điện thoại Android rồi mở để cài. Lần đầu Android sẽ hỏi cho phép cài app ngoài CH Play." \
+            --latest

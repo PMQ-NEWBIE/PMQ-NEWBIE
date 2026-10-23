@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Scale Sniffer</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<style>
+/* Layout: một cột công cụ, trên là điều khiển, dưới là danh sách thiết bị và bảng giải mã */
+:root{
+  --bg:#f3f5f4; --panel:#ffffff; --fg:#17201c; --muted:#5d6b64; --line:#d6ddd9;
+  --accent:#0f7a5a; --hot:#c2410c; --hotbg:#fde7da;
+  --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f1412; --panel:#171e1b; --fg:#e4ebe7; --muted:#93a39b; --line:#2a3530;
+  --accent:#3ccf98; --hot:#fb923c; --hotbg:#3a2213; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1412; --panel:#171e1b; --fg:#e4ebe7; --muted:#93a39b; --line:#2a3530;
+  --accent:#3ccf98; --hot:#fb923c; --hotbg:#3a2213; color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--sans);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:16px 40px}
+main{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+h1{font:600 22px/1.2 var(--mono);margin:0;letter-spacing:-.01em}
+h1 span{color:var(--accent)}
+h2{font:600 13px var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0}
+p{margin:0}
+.muted{color:var(--muted);font-size:13px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button{font:600 14px var(--sans);border:1px solid var(--line);background:var(--panel);color:var(--fg);padding:9px 14px;border-radius:8px;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--bg)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button:disabled{opacity:.5;cursor:default}
+input{font:14px var(--mono);padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);min-width:0}
+label{font-size:13px;color:var(--muted);display:flex;gap:6px;align-items:center}
+#status{font:13px var(--mono);color:var(--muted);min-width:0;overflow-wrap:anywhere}
+#status.err{color:var(--hot)}
+.dev{border-top:1px solid var(--line);padding-top:10px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.dev:first-child{border-top:0;padding-top:0}
+.devhead{display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap}
+.devname{font-weight:600}
+.rssi{font:12px var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.hex{font:13px/1.7 var(--mono);overflow-x:auto;white-space:nowrap;min-width:0}
+.hex .k{color:var(--muted);margin-right:6px}
+.b{display:inline-block;padding:0 2px;border-radius:3px}
+.b.ch{background:var(--hotbg);color:var(--hot);font-weight:600}
+.lock{align-self:flex-start;font-size:13px;padding:5px 10px}
+.big{font:600 44px/1 var(--mono);font-variant-numeric:tabular-nums}
+.big small{font-size:18px;color:var(--muted)}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;font:13px var(--mono);width:100%;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--muted);font-weight:600}
+tr.match td{color:var(--accent);font-weight:600}
+ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px}
+code{font-family:var(--mono);font-size:13px;background:var(--bg);padding:1px 5px;border-radius:4px;border:1px solid var(--line)}
+</style>
+</head>
+<body>
+<main>
+  <header style="display:flex;flex-direction:column;gap:6px">
+    <h1>scale<span>.</span>sniffer</h1>
+    <p class="muted">Nghe gói quảng bá BLE từ cân, tô đỏ byte nào đổi giữa 2 lần phát, rồi dò xem byte nào là cân nặng.</p>
+  </header>
+
+  <section class="panel">
+    <h2>Quét</h2>
+    <div class="row">
+      <button class="primary" id="btnScan">Bắt đầu quét</button>
+      <button id="btnStop" disabled>Dừng</button>
+      <button id="btnDemo">Chạy dữ liệu mẫu</button>
+    </div>
+    <div class="row">
+      <label for="fName">Lọc tên/ID <input id="fName" placeholder="vd: scale, MI" size="12"></label>
+      <label for="fRssi">RSSI ≥ <input id="fRssi" type="number" value="-75" style="width:72px"></label>
+    </div>
+    <p id="status">Chưa quét.</p>
+  </section>
+
+  <section class="panel" id="lockedPanel" hidden>
+    <h2>Thiết bị đang theo dõi</h2>
+    <div id="lockedName" class="devname"></div>
+    <div id="presetOut"></div>
+    <div class="row">
+      <label for="known">Cân nặng thật (kg) <input id="known" type="number" step="0.05" placeholder="vd: 68.4" style="width:100px"></label>
+      <button id="btnUnlock">Bỏ theo dõi</button>
+    </div>
+    <p class="muted">Đứng lên cân, đợi số chốt, nhập số trên màn hình cân vào ô trên. Dòng xanh là vị trí byte + hệ số khớp.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Nguồn</th><th>Offset</th><th>Kiểu</th><th>÷</th><th>Giá trị</th></tr></thead>
+      <tbody id="cand"></tbody>
+    </table></div>
+  </section>
+
+  <section class="panel">
+    <h2>Thiết bị xung quanh</h2>
+    <div id="devices"><p class="muted">Bấm quét, rồi bước lên cân để nó thức dậy và phát sóng.</p></div>
+  </section>
+
+  <section class="panel">
+    <h2>Chạy được ở đâu</h2>
+    <ol class="muted">
+      <li>Android + Chrome. Mở <code>chrome://flags/#enable-experimental-web-platform-features</code>, bật Enabled, khởi động lại Chrome.</li>
+      <li>Trang phải chạy qua HTTPS (vd GitHub Pages) hoặc localhost. Mở file trực tiếp có thể bị chặn.</li>
+      <li>iPhone: Safari không hỗ trợ Web Bluetooth, phải dùng app trình duyệt Bluefy.</li>
+      <li>Bật Bluetooth + Vị trí trên điện thoại (Android cần vị trí để quét BLE).</li>
+    </ol>
+  </section>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const devices = new Map(); // id -> {name, rssi, streams: Map(key -> {cur, prev})}
+  let scan = null, demoTimer = null, lockedId = null, renderQueued = false;
+
+  const setStatus = (t, err) => { $('status').textContent = t; $('status').className = err ? 'err' : ''; };
+  const toBytes = dv => { const a = []; for (let i = 0; i < dv.byteLength; i++) a.push(dv.getUint8(i)); return a; };
+  const hx = n => n.toString(16).padStart(2, '0').toUpperCase();
+  const shortUuid = u => { const m = /^0000([0-9a-f]{4})-0000-1000-8000-00805f9b34fb$/i.exec(u); return m ? '0x' + m[1].toUpperCase() : u; };
+
+  function ingest(id, name, rssi, mfr, svc) {
+    let d = devices.get(id);
+    if (!d) { d = { name: name || '(không tên)', rssi, streams: new Map(), seen: 0 }; devices.set(id, d); }
+    if (name) d.name = name;
+    d.rssi = rssi; d.seen++;
+    const put = (key, bytes) => {
+      const s = d.streams.get(key);
+      const same = s && s.cur.length === bytes.length && s.cur.every((b, i) => b === bytes[i]);
+      if (same) return;
+      d.streams.set(key, { cur: bytes, prev: s ? s.cur : null });
+    };
+    mfr.forEach(([k, b]) => put('MFR 0x' + k.toString(16).padStart(4, '0').toUpperCase(), b));
+    svc.forEach(([k, b]) => put('SVC ' + shortUuid(k), b));
+    queueRender();
+  }
+
+  function queueRender() { if (!renderQueued) { renderQueued = true; requestAnimationFrame(render); } }
+
+  function hexHtml(s) {
+    return s.cur.map((b, i) => {
+      const ch = s.prev && (s.prev[i] !== b || s.prev.length !== s.cur.length);
+      return `<span class="b${ch ? ' ch' : ''}" title="byte ${i}">${hx(b)}</span>`;
+    }).join(' ');
+  }
+
+  function render() {
+    renderQueued = false;
+    const f = $('fName').value.trim().toLowerCase();
+    const minR = Number($('fRssi').value) || -127;
+    const list = [...devices.entries()]
+      .filter(([id, d]) => (d.rssi ?? -127) >= minR && (!f || d.name.toLowerCase().includes(f) || id.toLowerCase().includes(f)))
+      .sort((a, b) => (b[1].rssi ?? -127) - (a[1].rssi ?? -127));
+    const box = $('devices');
+    if (!list.length) {
+      box.innerHTML = `<p class="muted">${devices.size ? 'Không thiết bị nào qua bộ lọc.' : 'Chưa bắt được gói nào.'}</p>`;
+    } else {
+      box.innerHTML = list.map(([id, d]) => `
+        <div class="dev">
+          <div class="devhead"><span class="devname">${esc(d.name)}</span><span class="rssi">${d.rssi ?? '?'} dBm · ${d.seen} gói</span></div>
+          ${[...d.streams.entries()].map(([k, s]) => `<div class="hex"><span class="k">${k}</span>${hexHtml(s)}</div>`).join('') || '<p class="muted">Không có manufacturer/service data.</p>'}
+          <button class="lock" data-id="${esc(id)}">${lockedId === id ? 'Đang theo dõi' : 'Theo dõi thiết bị này'}</button>
+        </div>`).join('');
+    }
+    renderLocked();
+  }
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+  // Giải mã thử các format đã biết (Xiaomi Mi Scale 1 / 2)
+  function presets(d) {
+    const out = [];
+    const s1 = d.streams.get('SVC 0x181D');
+    if (s1 && s1.cur.length >= 3) {
+      const b = s1.cur, ctrl = b[0], raw = b[1] | (b[2] << 8);
+      const lbs = ctrl & 0x01, catty = ctrl & 0x10;
+      out.push({ label: 'Kiểu Mi Scale 1 (0x181D)', val: lbs ? raw / 100 : catty ? raw / 100 : raw / 200, unit: lbs ? 'lb' : catty ? 'cân TQ' : 'kg', stable: !!(ctrl & 0x20) });
+    }
+    const s2 = d.streams.get('SVC 0x181B');
+    if (s2 && s2.cur.length >= 13) {
+      const b = s2.cur, raw = b[11] | (b[12] << 8), imp = b[9] | (b[10] << 8);
+      const lbs = b[0] & 0x01;
+      out.push({ label: 'Kiểu Mi Scale 2 (0x181B)', val: lbs ? raw / 100 : raw / 200, unit: lbs ? 'lb' : 'kg', stable: !!(b[1] & 0x20), imp });
+    }
+    return out;
+  }
+
+  function renderLocked() {
+    const p = $('lockedPanel');
+    const d = lockedId && devices.get(lockedId);
+    if (!d) { p.hidden = true; return; }
+    p.hidden = false;
+    $('lockedName').textContent = d.name + ' · ' + (d.rssi ?? '?') + ' dBm';
+    const pr = presets(d);
+    $('presetOut').innerHTML = pr.length ? pr.map(x => `
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <span class="muted">${x.label}${x.stable ? ' · đã chốt' : ' · đang dao động'}${x.imp ? ' · trở kháng ' + x.imp + ' Ω' : ''}</span>
+        <span class="big">${x.val.toFixed(2)} <small>${x.unit}</small></span>
+      </div>`).join('') : '<p class="muted">Không khớp format quen. Dùng bảng dò bên dưới.</p>';
+
+    const known = parseFloat($('known').value);
+    const rows = [];
+    for (const [k, s] of d.streams) {
+      const b = s.cur;
+      for (let i = 0; i + 1 < b.length; i++) {
+        const le = b[i] | (b[i + 1] << 8), be = (b[i] << 8) | b[i + 1];
+        for (const [type, raw] of [['u16 LE', le], ['u16 BE', be]]) {
+          for (const div of [10, 100, 200]) {
+            const v = raw / div;
+            if (v < 2 || v > 250) continue;
+            const match = !isNaN(known) && Math.abs(v - known) <= 0.15;
+            rows.push({ k, i, type, div, v, match });
+          }
+        }
+      }
+    }
+    rows.sort((a, b) => (b.match - a.match));
+    $('cand').innerHTML = rows.length ? rows.slice(0, 40).map(r =>
+      `<tr class="${r.match ? 'match' : ''}"><td>${r.k}</td><td>${r.i}</td><td>${r.type}</td><td>${r.div}</td><td>${r.v.toFixed(2)}</td></tr>`).join('')
+      : '<tr><td colspan="5" class="muted">Chưa có byte nào ra giá trị 2 đến 250.</td></tr>';
+  }
+
+  $('devices').addEventListener('click', e => {
+    const btn = e.target.closest('.lock'); if (!btn) return;
+    lockedId = btn.dataset.id; render();
+    $('lockedPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  $('btnUnlock').addEventListener('click', () => { lockedId = null; render(); });
+  ['fName', 'fRssi', 'known'].forEach(id => $(id).addEventListener('input', queueRender));
+
+  $('btnScan').addEventListener('click', async () => {
+    stopDemo();
+    if (!navigator.bluetooth) { setStatus('Trình duyệt này không có Web Bluetooth. Dùng Chrome Android (hoặc Bluefy trên iPhone).', true); return; }
+    if (!navigator.bluetooth.requestLEScan) { setStatus('Chưa bật flag quét. Vào chrome://flags/#enable-experimental-web-platform-features, bật Enabled rồi khởi động lại Chrome.', true); return; }
+    try {
+      navigator.bluetooth.removeEventListener('advertisementreceived', onAdv);
+      navigator.bluetooth.addEventListener('advertisementreceived', onAdv);
+      scan = await navigator.bluetooth.requestLEScan({ acceptAllAdvertisements: true, keepRepeatedDevices: true });
+      setStatus('Đang quét... bước lên cân đi bro.');
+      $('btnScan').disabled = true; $('btnStop').disabled = false;
+    } catch (err) {
+      if (/permissions policy/i.test(err && err.message || '')) {
+        setStatus('Trang đang bị nhúng trong khung (iframe) không cho dùng Bluetooth. Phải mở trang ở tên miền riêng, vd GitHub Pages.', true);
+        return;
+      }
+      setStatus('Không quét được: ' + (err && err.message || err) + '. Kiểm tra đã bật Bluetooth, Vị trí, và trang đang chạy qua HTTPS.', true);
+    }
+  });
+
+  function onAdv(ev) {
+    const mfr = [], svc = [];
+    ev.manufacturerData && ev.manufacturerData.forEach((dv, k) => mfr.push([k, toBytes(dv)]));
+    ev.serviceData && ev.serviceData.forEach((dv, k) => svc.push([k, toBytes(dv)]));
+    ingest(ev.device.id, ev.device.name || ev.name, ev.rssi, mfr, svc);
+  }
+
+  $('btnStop').addEventListener('click', () => {
+    if (scan && scan.active) scan.stop();
+    stopDemo();
+    $('btnScan').disabled = false; $('btnStop').disabled = true;
+    setStatus('Đã dừng. Dữ liệu vẫn giữ lại ở dưới.');
+  });
+
+  // Dữ liệu mẫu: giả lập 1 cân kiểu Mi Scale 2 + 1 thiết bị nhiễu
+  function stopDemo() { if (demoTimer) { clearInterval(demoTimer); demoTimer = null; } }
+  $('btnDemo').addEventListener('click', () => {
+    stopDemo();
+    let w = 0, t = 0;
+    setStatus('Đang chạy dữ liệu MẪU (không phải cân thật). Cân giả sẽ chốt ở 68.40 kg.');
+    $('btnStop').disabled = false;
+    demoTimer = setInterval(() => {
+      t++;
+      w = t < 12 ? 68.4 * (t / 12) + (Math.random() - .5) * 2 : 68.4;
+      const raw = Math.round(w * 200), stable = t >= 12;
+      const b = [0x02, stable ? 0x24 : 0x04, 0xEA, 0x07, 10, 23, 7, 30, 0, 0xF4, 0x01, raw & 0xFF, raw >> 8];
+      ingest('DEMO-SCALE', 'MIBFS (mẫu)', -52 - Math.round(Math.random() * 4), [], [['0000181b-0000-1000-8000-00805f9b34fb', b]]);
+      ingest('DEMO-BAND', 'Tai nghe (mẫu)', -70, [[0x004C, [0x10, 0x05, t & 0xFF, 0x1C]]], []);
+      if (t === 2) lockedId = 'DEMO-SCALE';
+      if (t > 40) stopDemo();
+    }, 400);
+  });
+})();
+</script>
+</body>
+</html>
