@@ -25,6 +25,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: 3.47.7 # ghim phiên bản để build lặp lại được
           cache: true
 
       - name: Tạo khung Android và chép code native
@@ -60,14 +61,14 @@ jobs:
           flutter test 2>&1 | tee -a build.log
           flutter build apk --release --split-per-abi --build-name 1.0.${{ github.run_number }} --build-number ${{ github.run_number }} 2>&1 | tee -a build.log
 
-      - name: Đẩy log lỗi lên nhánh ci-logs
-        if: failure()
+      - name: Đẩy log build lên nhánh ci-logs
+        if: always()
         run: |
           mkdir -p /tmp/logs && cp build.log /tmp/logs/ 2>/dev/null || echo "no log" > /tmp/logs/build.log
           cd /tmp/logs
           git init -q -b ci-logs
           git config user.name ci && git config user.email ci@local
-          echo "run ${{ github.run_number }} sha ${{ github.sha }}" > info.txt
+          echo "run ${{ github.run_number }} sha ${{ github.sha }} status ${{ job.status }}" > info.txt
           git add -A && git commit -q -m "log run ${{ github.run_number }}"
           git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" ci-logs
 
